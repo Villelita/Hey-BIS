@@ -2,10 +2,13 @@ import contextlib
 import csv
 import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 import wave
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import main
 

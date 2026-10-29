@@ -1,7 +1,11 @@
+from pathlib import Path
+import sys
 import tempfile
 import unittest
-from pathlib import Path
 import numpy as np
+
+# Asegurar que los módulos de la raíz del proyecto sean importables
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import audio_features
 import neural_network
@@ -78,6 +82,15 @@ class NeuralNetworkTests(unittest.TestCase):
         self.assertEqual(summary["input_dimension"], 3136)
         self.assertGreater(summary["total_parameters"], 0)
         self.assertIn("weights_memory_kb", summary)
+
+    def test_evaluate_model(self):
+        import train_wake_word
+        x = np.random.randn(6, 3136).astype(np.float32)
+        y = np.array([0, 1, 2, 0, 1, 2])
+        metrics = train_wake_word.evaluate_model(self.model, x, y)
+        self.assertIn("accuracy", metrics)
+        self.assertIn("confusion_matrix", metrics)
+        self.assertEqual(metrics["total_samples"], 6)
 
 
 if __name__ == "__main__":

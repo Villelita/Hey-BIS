@@ -7,12 +7,13 @@ en el documento nanoAI.pdf:
   - Tasa de falsas alarmas (false wake-ups).
 """
 
+from __future__ import annotations
 import argparse
 import csv
 import json
 from pathlib import Path
 import time
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 import numpy as np
 
 import audio_features

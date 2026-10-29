@@ -2,11 +2,14 @@ import contextlib
 import csv
 import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 import wave
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import import_esc50
 import main
