@@ -6,6 +6,7 @@ tmp/
 data/
 output/
 recordings/
+*.npz
 *.wav
 *.mp3
 *.m4a
@@ -48,3 +49,24 @@ _netrc
 *.jks
 id_rsa
 id_ed25519
+
+# Instrucciones y configuracion locales de asistentes
+.agents/
+.codex/
+.cursor/
+AGENTS.md
+AGENTS.local.md
+CLAUDE.md
+GEMINI.md
+.github/copilot-instructions.md
+instructions.local.*
+
+# Credenciales locales en formatos de texto y configuracion
+credentials.*
+*credentials*.txt
+*credentials*.yaml
+*credentials*.yml
+*secrets*.txt
+*secrets*.json
+*secrets*.yaml
+*secrets*.yml

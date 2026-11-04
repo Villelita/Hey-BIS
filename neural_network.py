@@ -22,9 +22,18 @@ LABEL_TO_IDX = {label: idx for idx, label in enumerate(LABELS)}
 IDX_TO_LABEL = {idx: label for idx, label in enumerate(LABELS)}
 
 
+def threshold_predictions(probs: np.ndarray, threshold: float) -> np.ndarray:
+    """Misma decision en archivos, microfono y evaluacion."""
+    if not np.isfinite(threshold) or not 0 < threshold <= 1:
+        raise ValueError("El umbral debe estar en (0, 1].")
+    predictions = np.argmax(probs[:, :2], axis=1)
+    predictions[probs[:, 2] >= threshold] = 2
+    return predictions
+
+
 class DenseLayer:
     """Capa de neuronas densamente conectadas (Fully Connected).
-    
+
     Cada neurona realiza la operación: z = X @ W + b
     donde:
       X = vector de entrada
@@ -32,10 +41,11 @@ class DenseLayer:
       b = vector de sesgo (bias)
     """
 
-    def __init__(self, input_dim: int, output_dim: int, name: str = "dense"):
+    def __init__(self, input_dim: int, output_dim: int, name: str = "dense", trainable: bool = True):
         self.name = name
         self.input_dim = input_dim
         self.output_dim = output_dim
+        self.trainable = trainable
 
         # Inicialización He (Kaiming Normal) adecuada para activaciones ReLU
         std = np.sqrt(2.0 / input_dim)
@@ -43,26 +53,27 @@ class DenseLayer:
         self.bias = np.zeros((1, output_dim), dtype=np.float32)
 
         # Gradientes acumulados en backpropagation
-        self.grad_weights = np.zeros_like(self.weights)
-        self.grad_bias = np.zeros_like(self.bias)
+        self.grad_weights = np.zeros_like(self.weights) if trainable else None
+        self.grad_bias = np.zeros_like(self.bias) if trainable else None
 
         # Variables temporales para backpropagation y optimizador Adam
         self.last_input: np.ndarray | None = None
-        self.m_w = np.zeros_like(self.weights)
-        self.v_w = np.zeros_like(self.weights)
-        self.m_b = np.zeros_like(self.bias)
-        self.v_b = np.zeros_like(self.bias)
+        self.m_w = np.zeros_like(self.weights) if trainable else None
+        self.v_w = np.zeros_like(self.weights) if trainable else None
+        self.m_b = np.zeros_like(self.bias) if trainable else None
+        self.v_b = np.zeros_like(self.bias) if trainable else None
 
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Paso hacia adelante: cálculo lineal de las neuronas."""
-        self.last_input = x
+        if self.trainable:
+            self.last_input = x
         return np.matmul(x, self.weights) + self.bias
 
     def backward(self, grad_output: np.ndarray) -> np.ndarray:
         """Paso hacia atrás: cálculo de gradientes respecto a entradas y pesos."""
         if self.last_input is None:
             raise RuntimeError("Se debe ejecutar forward antes de backward.")
-        
+
         # dL/dW = X.T @ grad_output
         self.grad_weights = np.matmul(self.last_input.T, grad_output)
         # dL/db = suma sobre los ejemplos del batch
@@ -101,7 +112,7 @@ class SoftmaxCrossEntropy:
     @staticmethod
     def loss(probs: np.ndarray, targets: np.ndarray) -> float:
         """Calcula la pérdida promedio sobre el batch.
-        
+
         targets puede ser índices enteros de clase (N,) o matriz one-hot (N, C).
         """
         batch_size = len(probs)
@@ -162,7 +173,7 @@ class AdamOptimizer:
 
 class WakeWordNeuralNetwork:
     """Red Neuronal Artificial para la detección de 'Hey BIS' y ruidos ambientales.
-    
+
     Arquitectura por defecto:
       - Entrada: 3136 características (Espectrograma Log-Mel: 32 bandas x 98 frames)
       - Capa 1: 64 neuronas + activación ReLU
@@ -176,18 +187,23 @@ class WakeWordNeuralNetwork:
         hidden_dim1: int = 64,
         hidden_dim2: int = 32,
         num_classes: int = 3,
+        trainable: bool = True,
     ):
         self.input_dim = input_dim
         self.hidden_dim1 = hidden_dim1
         self.hidden_dim2 = hidden_dim2
         self.num_classes = num_classes
+        self.trainable = trainable
+        self.training_steps = 0
+        self.wake_threshold = 0.60
+        self.metadata = {}
 
         # Capas del modelo
-        self.dense1 = DenseLayer(input_dim, hidden_dim1, name="capa_oculta_1")
+        self.dense1 = DenseLayer(input_dim, hidden_dim1, name="capa_oculta_1", trainable=trainable)
         self.relu1 = ReLU()
-        self.dense2 = DenseLayer(hidden_dim1, hidden_dim2, name="capa_oculta_2")
+        self.dense2 = DenseLayer(hidden_dim1, hidden_dim2, name="capa_oculta_2", trainable=trainable)
         self.relu2 = ReLU()
-        self.dense3 = DenseLayer(hidden_dim2, num_classes, name="capa_salida")
+        self.dense3 = DenseLayer(hidden_dim2, num_classes, name="capa_salida", trainable=trainable)
 
         self.dense_layers: List[DenseLayer] = [self.dense1, self.dense2, self.dense3]
 
@@ -223,7 +239,7 @@ class WakeWordNeuralNetwork:
         features = audio_features.extract_features(samples)
         probs = self.predict_proba(features)[0]
 
-        pred_idx = int(np.argmax(probs))
+        pred_idx = int(threshold_predictions(probs[None, :], wake_threshold)[0])
         prob_dict = {
             LABELS[0]: float(probs[0]),
             LABELS[1]: float(probs[1]),
@@ -234,7 +250,7 @@ class WakeWordNeuralNetwork:
         wake_word_prob = float(probs[LABEL_TO_IDX["wake_word"]])
         is_wake = wake_word_prob >= wake_threshold
 
-        detected_label = "wake_word" if is_wake else LABELS[pred_idx]
+        detected_label = LABELS[pred_idx]
 
         return {
             "label": detected_label,
@@ -251,6 +267,8 @@ class WakeWordNeuralNetwork:
         optimizer: AdamOptimizer,
     ) -> float:
         """Ejecuta un ciclo completo de entrenamiento (Forward -> Loss -> Backward -> Update)."""
+        if not self.trainable:
+            raise RuntimeError("Este modelo fue cargado solo para inferencia.")
         # 1. Forward pass
         logits = self.forward(batch_x)
         probs = SoftmaxCrossEntropy.softmax(logits)
@@ -268,6 +286,7 @@ class WakeWordNeuralNetwork:
 
         # 4. Actualización de pesos
         optimizer.step()
+        self.training_steps += 1
 
         return loss
 
@@ -300,6 +319,8 @@ class WakeWordNeuralNetwork:
     def save_weights(self, filepath: str | Path):
         """Guarda los pesos entrenados en un archivo comprimido .npz."""
         path = Path(filepath)
+        if path.suffix.lower() != ".npz":
+            raise ValueError("El archivo de pesos debe terminar en .npz.")
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(
             str(path),
@@ -309,14 +330,63 @@ class WakeWordNeuralNetwork:
             b2=self.dense2.bias,
             w3=self.dense3.weights,
             b3=self.dense3.bias,
+            metadata=json.dumps({
+                **self.metadata,
+                "format_version": 1,
+                "feature_version": audio_features.FEATURE_VERSION,
+                "sample_rate": audio_features.SAMPLE_RATE,
+                "window_samples": audio_features.WINDOW_SAMPLES,
+                "architecture": [self.input_dim, self.hidden_dim1, self.hidden_dim2, self.num_classes],
+                "labels": LABELS,
+                "training_steps": self.training_steps,
+                "wake_threshold": self.wake_threshold,
+            }),
         )
 
     def load_weights(self, filepath: str | Path):
         """Carga los pesos guardados desde un archivo .npz."""
-        data = np.load(str(filepath))
-        self.dense1.weights = data["w1"]
-        self.dense1.bias = data["b1"]
-        self.dense2.weights = data["w2"]
-        self.dense2.bias = data["b2"]
-        self.dense3.weights = data["w3"]
-        self.dense3.bias = data["b3"]
+        with np.load(str(filepath), allow_pickle=False) as data:
+            if "metadata" not in data:
+                raise ValueError("Modelo antiguo sin metadatos: vuelve a entrenarlo.")
+            meta = json.loads(str(data["metadata"].item()))
+            if (meta.get("format_version") != 1
+                    or meta.get("labels") != LABELS
+                    or meta.get("feature_version") != audio_features.FEATURE_VERSION
+                    or meta.get("sample_rate") != 16000
+                    or meta.get("window_samples") != 16000
+                    or meta.get("architecture") != [self.input_dim, self.hidden_dim1, self.hidden_dim2, self.num_classes]):
+                raise ValueError("Arquitectura o preprocesamiento incompatible en el modelo.")
+            threshold_predictions(np.array([[1., 0., 0.]]), meta["wake_threshold"])
+            if type(meta.get("training_steps")) is not int or meta["training_steps"] < 0:
+                raise ValueError("training_steps invalido.")
+            loaded = []
+            for i, layer in enumerate(self.dense_layers, 1):
+                w, b = data[f"w{i}"], data[f"b{i}"]
+                if (w.shape != layer.weights.shape or b.shape != layer.bias.shape
+                        or w.dtype != np.float32 or b.dtype != np.float32
+                        or not np.isfinite(w).all() or not np.isfinite(b).all()):
+                    raise ValueError(f"Pesos invalidos en capa {i}.")
+                loaded.append((w.copy(), b.copy()))
+        for layer, (w, b) in zip(self.dense_layers, loaded):
+            layer.weights, layer.bias = w, b
+        self.training_steps = meta["training_steps"]
+        self.wake_threshold = meta["wake_threshold"]
+        self.metadata = meta
+
+    @classmethod
+    def from_weights(cls, filepath: str | Path):
+        """Reconstruye una red de inferencia sin reservar estados de Adam."""
+        with np.load(str(filepath), allow_pickle=False) as data:
+            if "metadata" not in data:
+                raise ValueError("Modelo sin metadatos: vuelve a entrenarlo.")
+            meta = json.loads(str(data["metadata"].item()))
+        dims = meta.get("architecture")
+        if (not isinstance(dims, list) or len(dims) != 4
+                or any(type(d) is not int or d <= 0 for d in dims)
+                or dims[0] != 3136 or dims[-1] != 3):
+            raise ValueError("Arquitectura de audio incompatible.")
+        model = cls(*dims, trainable=False)
+        model.load_weights(filepath)
+        if not model.training_steps:
+            raise ValueError("El modelo no ha sido entrenado.")
+        return model
