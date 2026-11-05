@@ -10,8 +10,15 @@ import numpy as np
 from scipy.signal import spectrogram
 
 SAMPLE_RATE = 16_000
-WINDOW_SAMPLES = 16_000
-FEATURE_VERSION = "logmel32-98-zscore-v1"
+WINDOW_SECONDS = 3
+WINDOW_SAMPLES = SAMPLE_RATE * WINDOW_SECONDS
+N_MELS = 32
+N_FFT = 512
+HOP_LENGTH = 160
+WIN_LENGTH = 400
+SPECTROGRAM_FRAMES = 1 + (WINDOW_SAMPLES - WIN_LENGTH) // HOP_LENGTH
+FEATURE_DIM = N_MELS * SPECTROGRAM_FRAMES
+FEATURE_VERSION = f"logmel{N_MELS}-{SPECTROGRAM_FRAMES}-zscore-v2"
 
 
 def validate_samples(samples: np.ndarray) -> np.ndarray:
@@ -22,10 +29,10 @@ def validate_samples(samples: np.ndarray) -> np.ndarray:
 
 
 def audio_windows(samples: np.ndarray, hop_size: int = 4_000):
-    """Ventanas de un segundo, incluida la cola; tiempos limitados al audio real."""
+    """Ventanas de tres segundos, incluida la cola; tiempos limitados al audio real."""
     samples = validate_samples(samples)
     if not 0 < hop_size <= WINDOW_SAMPLES:
-        raise ValueError("hop_size debe estar entre 1 y 16000 muestras.")
+        raise ValueError(f"hop_size debe estar entre 1 y {WINDOW_SAMPLES} muestras.")
     start = 0
     while True:
         end = min(start + WINDOW_SAMPLES, len(samples))
@@ -48,9 +55,9 @@ def mel_to_hz(mel: float | np.ndarray) -> float | np.ndarray:
 
 
 def build_mel_filterbank(
-    n_mels: int = 32,
-    n_fft: int = 512,
-    sample_rate: int = 16_000,
+    n_mels: int = N_MELS,
+    n_fft: int = N_FFT,
+    sample_rate: int = SAMPLE_RATE,
     f_min: float = 60.0,
     f_max: float = 7600.0,
 ) -> np.ndarray:
@@ -80,7 +87,7 @@ def build_mel_filterbank(
     return filterbank
 
 
-def load_wav(path: str | Path, target_rate: int = 16_000) -> np.ndarray:
+def load_wav(path: str | Path, target_rate: int = SAMPLE_RATE) -> np.ndarray:
     """Carga un archivo WAV mono a 16 kHz como arreglo float32 en [-1.0, 1.0]."""
     with wave.open(str(path), "rb") as audio:
         channels = audio.getnchannels()
@@ -104,8 +111,8 @@ def load_wav(path: str | Path, target_rate: int = 16_000) -> np.ndarray:
     return samples
 
 
-def pad_or_crop(samples: np.ndarray, target_length: int = 16_000) -> np.ndarray:
-    """Ajusta la señal a exactamente target_length muestras (1.0 s por defecto)."""
+def pad_or_crop(samples: np.ndarray, target_length: int = WINDOW_SAMPLES) -> np.ndarray:
+    """Ajusta la señal a exactamente target_length muestras (3 s por defecto)."""
     samples = validate_samples(samples)
     current_length = len(samples)
     if current_length == target_length:
@@ -123,11 +130,11 @@ def pad_or_crop(samples: np.ndarray, target_length: int = 16_000) -> np.ndarray:
 
 def compute_log_mel_spectrogram(
     samples: np.ndarray,
-    sample_rate: int = 16_000,
-    n_mels: int = 32,
-    n_fft: int = 512,
-    hop_length: int = 160,
-    win_length: int = 400,
+    sample_rate: int = SAMPLE_RATE,
+    n_mels: int = N_MELS,
+    n_fft: int = N_FFT,
+    hop_length: int = HOP_LENGTH,
+    win_length: int = WIN_LENGTH,
 ) -> np.ndarray:
     """Calcula el espectrograma Log-Mel para la señal dada.
 
@@ -166,10 +173,10 @@ def compute_log_mel_spectrogram(
 
 def extract_features(
     samples: np.ndarray,
-    target_length: int = 16_000,
-    n_mels: int = 32,
+    target_length: int = WINDOW_SAMPLES,
+    n_mels: int = N_MELS,
 ) -> np.ndarray:
-    """Pipeline completo: ajusta duración (1s) y genera vector 1D aplanado de características."""
+    """Ajusta a tres segundos y genera un vector de 9536 caracteristicas."""
     adjusted = pad_or_crop(samples, target_length=target_length)
     mel_spec = compute_log_mel_spectrogram(adjusted, n_mels=n_mels)
     return mel_spec.flatten()

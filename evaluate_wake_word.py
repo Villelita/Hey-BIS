@@ -17,7 +17,7 @@ def event_metrics(classifier, paths, hop_size=4000, cooldown=1.0):
     for path in paths:
         samples = audio_features.load_wav(path)
         windows = classifier.scan_streaming_window(samples, hop_size=hop_size, cooldown=cooldown)
-        seconds += len(samples) / 16000
+        seconds += len(samples) / audio_features.SAMPLE_RATE
         events.extend({"path": str(path), **r} for r in windows if r["activation"])
     return {"files": len(paths), "audio_seconds": seconds, "false_activations": len(events),
             "false_activations_per_hour": len(events) * 3600 / seconds if seconds else None,
@@ -45,6 +45,8 @@ def evaluate(data_dir: Path, weights: Path, output: Path,
     report = {"schema_version": 1, "split": "test", "manifest_sha256": manifest_hash,
               "dataset_sha256": dataset_report["dataset_sha256"],
               "model_sha256": file_hash(weights), "threshold": classifier.wake_threshold,
+              "window_seconds": audio_features.WINDOW_SECONDS,
+              "window_samples": audio_features.WINDOW_SAMPLES,
               "hop_samples": hop_size, "cooldown_seconds": cooldown,
               "clips_and_windows": evaluate_model(classifier.model, x, y), "wake_by_language": {}}
     rows = read_rows(data_dir, "test")

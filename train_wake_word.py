@@ -45,11 +45,11 @@ def load_dataset_split(data_dir: Path, target_split: str,
             raise ValueError(f"Ruta fuera del dataset: {row['path']}")
         samples = audio_features.load_wav(path)
         if label == 'wake_word':
-            if len(samples) > 16000:
-                raise ValueError(f"Recorta la frase completa a un clip de hasta 1 segundo: {row['path']}")
+            if len(samples) > audio_features.WINDOW_SAMPLES:
+                raise ValueError(f"Recorta la frase completa a un clip de hasta {audio_features.WINDOW_SECONDS} segundos: {row['path']}")
             windows = [(0, len(samples), audio_features.pad_or_crop(samples))]
         else:
-            windows = audio_features.audio_windows(samples, hop_size=16000)
+            windows = audio_features.audio_windows(samples, hop_size=audio_features.WINDOW_SAMPLES)
         for start, end, window in windows:
             if max_samples_per_class is not None and counts[label] >= max_samples_per_class:
                 break
@@ -58,7 +58,7 @@ def load_dataset_split(data_dir: Path, target_split: str,
             paths.append(f"{row['path']}#{start}:{end}")
             counts[label] += 1
     if not features:
-        return np.empty((0, 3136), np.float32), np.empty(0, dtype=int), []
+        return np.empty((0, audio_features.FEATURE_DIM), np.float32), np.empty(0, dtype=int), []
     return np.asarray(features, np.float32), np.asarray(targets, dtype=int), paths
 
 
