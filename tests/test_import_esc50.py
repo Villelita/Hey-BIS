@@ -35,7 +35,9 @@ class ImportTests(unittest.TestCase):
         for row in self.rows:
             with wave.open(str(self.source / "audio" / row[0]), "wb") as output:
                 output.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
-                output.writeframes(self.samples.tobytes())
+                # Fuentes distintas usan PCM distinto: no introducir fuga en el fixture.
+                samples = self.samples if row[5] == "123" else self.samples // 2
+                output.writeframes(samples.tobytes())
         with (self.source / "meta" / "esc50.csv").open("w", newline="", encoding="utf-8") as output:
             writer = csv.writer(output)
             writer.writerow(("filename", "fold", "target", "category", "esc10", "src_file", "take"))

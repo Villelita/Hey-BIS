@@ -1,85 +1,94 @@
-"""Clasificador de audio para inferencia y análisis de ruidos / Wake Word.
+"""Inferencia con pesos entrenados y una politica compartida de activacion."""
 
-Carga un modelo entrenado (o inicializado) y clasifica archivos de audio WAV o buffers
-de audio en tiempo real, evaluando si es ruido de fondo, voz común o 'Hey BIS'.
-"""
-
+import argparse
+import json
 from pathlib import Path
-from typing import Dict, Any, Union
+import wave
+
 import numpy as np
 
 import audio_features
-from neural_network import WakeWordNeuralNetwork, LABELS
+from neural_network import WakeWordNeuralNetwork
+
+
+class ActivationGate:
+    """Cuenta un evento por racha positiva; exige liberacion y tiempo de espera."""
+
+    def __init__(self, cooldown: float = 1.0):
+        if not np.isfinite(cooldown) or cooldown < 0:
+            raise ValueError("cooldown debe ser finito y no negativo.")
+        self.cooldown = cooldown
+        self.active = False
+        self.last_event = float("-inf")
+
+    def update(self, is_wake: bool, time_sec: float) -> bool:
+        event = bool(is_wake and not self.active and time_sec - self.last_event >= self.cooldown)
+        self.active = bool(is_wake)
+        if event:
+            self.last_event = time_sec
+        return event
 
 
 class AudioNoiseClassifier:
-    """Clasificador de alto nivel para inferencia de Wake Word y análisis de ruido."""
+    def __init__(self, weights_path: str | Path | None = None, wake_threshold: float | None = None):
+        if weights_path is None:
+            raise ValueError("Indica --weights con un modelo entrenado.")
+        if not Path(weights_path).is_file():
+            raise FileNotFoundError(f"No existe el modelo: {weights_path}")
+        self.model = WakeWordNeuralNetwork.from_weights(weights_path)
+        self.wake_threshold = self.model.wake_threshold if wake_threshold is None else wake_threshold
+        if not np.isfinite(self.wake_threshold) or not 0 < self.wake_threshold <= 1:
+            raise ValueError("El umbral debe estar en (0, 1].")
 
-    def __init__(
-        self,
-        weights_path: Union[str, Path, None] = None,
-        wake_threshold: float = 0.60,
-    ):
-        self.model = WakeWordNeuralNetwork()
-        self.wake_threshold = wake_threshold
-        if weights_path and Path(weights_path).is_file():
-            self.model.load_weights(weights_path)
-
-    def classify_file(self, wav_path: Union[str, Path]) -> Dict[str, Any]:
-        """Carga un archivo WAV (16 kHz) y clasifica su contenido."""
+    def classify_file(self, wav_path: str | Path) -> dict:
         samples = audio_features.load_wav(wav_path)
+        if len(samples) > audio_features.WINDOW_SAMPLES:
+            raise ValueError("El archivo supera un segundo. Usa --scan para analizarlo completo.")
         return self.classify_samples(samples)
 
-    def classify_samples(self, samples: np.ndarray) -> Dict[str, Any]:
-        """Clasifica un arreglo numpy de muestras de audio mono a 16 kHz."""
-        result = self.model.classify_audio_samples(
-            samples,
-            wake_threshold=self.wake_threshold,
-        )
-        return result
+    def classify_samples(self, samples: np.ndarray) -> dict:
+        samples = audio_features.validate_samples(samples)
+        if len(samples) > audio_features.WINDOW_SAMPLES:
+            raise ValueError("Clasifica ventanas de hasta un segundo; usa scan_streaming_window.")
+        return self.model.classify_audio_samples(samples, wake_threshold=self.wake_threshold)
 
-    def scan_streaming_window(
-        self,
-        long_samples: np.ndarray,
-        window_size: int = 16_000,
-        hop_size: int = 8_000,
-    ) -> list[Dict[str, Any]]:
-        """Analiza un audio largo mediante ventana deslizante para detectar activaciones en el tiempo.
-        
-        Útil para medir: 'how many false wake-ups per hour of ordinary talk' (métrica del PDF).
-        """
+    def scan_streaming_window(self, long_samples: np.ndarray, window_size: int = 16_000,
+                              hop_size: int = 4_000, cooldown: float = 1.0) -> list[dict]:
+        if window_size != audio_features.WINDOW_SAMPLES:
+            raise ValueError("Este modelo utiliza ventanas de 16000 muestras.")
+        gate = ActivationGate(cooldown)
         detections = []
-        total_len = len(long_samples)
-        for start in range(0, max(1, total_len - window_size + 1), hop_size):
-            end = start + window_size
-            window = long_samples[start:end]
-            if len(window) < window_size:
-                window = audio_features.pad_or_crop(window, target_length=window_size)
-            res = self.classify_samples(window)
+        for start, end, window in audio_features.audio_windows(long_samples, hop_size):
+            result = self.classify_samples(window)
+            time_sec = end / audio_features.SAMPLE_RATE
             detections.append({
-                "time_start_sec": round(start / 16_000, 2),
-                "time_end_sec": round(end / 16_000, 2),
-                **res,
+                "time_start_sec": start / audio_features.SAMPLE_RATE,
+                "time_end_sec": time_sec,
+                **result,
+                "activation": gate.update(result["is_wake_word"], time_sec),
             })
         return detections
 
 
-if __name__ == "__main__":
-    import argparse
-    import json
-
-    parser = argparse.ArgumentParser(description="Clasificar audio con la red neuronal de Hey BIS")
-    parser.add_argument("--wav", type=Path, help="Ruta al archivo WAV a clasificar")
-    parser.add_argument("--weights", type=Path, default=None, help="Archivo .npz con los pesos entrenados")
-    parser.add_argument("--threshold", type=float, default=0.60, help="Umbral para activar wake_word")
+def main():
+    parser = argparse.ArgumentParser(description="Clasificar WAV con pesos entrenados de Hey BIS")
+    parser.add_argument("--wav", type=Path, required=True)
+    parser.add_argument("--weights", type=Path, required=True)
+    parser.add_argument("--threshold", type=float)
+    parser.add_argument("--scan", action="store_true", help="Analizar todo un archivo largo")
+    parser.add_argument("--hop-size", type=int, default=4000)
+    parser.add_argument("--cooldown", type=float, default=1.0)
     args = parser.parse_args()
+    try:
+        classifier = AudioNoiseClassifier(args.weights, args.threshold)
+        result = (classifier.scan_streaming_window(audio_features.load_wav(args.wav),
+                  hop_size=args.hop_size, cooldown=args.cooldown) if args.scan
+                  else classifier.classify_file(args.wav))
+        print(json.dumps(result, indent=2))
+        return 0
+    except (OSError, ValueError, KeyError, EOFError, wave.Error) as error:
+        parser.exit(1, f"Error: {error}\n")
 
-    classifier = AudioNoiseClassifier(weights_path=args.weights, wake_threshold=args.threshold)
 
-    if args.wav:
-        analysis = classifier.classify_file(args.wav)
-        print(f"Resultado de: {args.wav}")
-        print(json.dumps(analysis, indent=2))
-    else:
-        print("Modelo listo. Arquitectura:")
-        print(json.dumps(classifier.model.summary(), indent=2))
+if __name__ == "__main__":
+    raise SystemExit(main())
