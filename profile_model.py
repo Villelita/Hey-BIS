@@ -45,12 +45,12 @@ def process_memory():
     return result
 
 
-def inspect_model_size(input_dim=3136, hidden_dim1=64, hidden_dim2=32, num_classes=3,
+def inspect_model_size(input_dim=audio_features.FEATURE_DIM, hidden_dim1=64, hidden_dim2=32, num_classes=3,
                        pi_ram_bytes=4_000_000_000, weights_path=None):
     model = (WakeWordNeuralNetwork.from_weights(weights_path) if weights_path else
              WakeWordNeuralNetwork(input_dim, hidden_dim1, hidden_dim2, num_classes, trainable=False))
     rng = np.random.default_rng(42)
-    samples = rng.normal(0, 0.05, 16000).astype(np.float32)
+    samples = rng.normal(0, 0.05, audio_features.WINDOW_SAMPLES).astype(np.float32)
     features = audio_features.extract_features(samples)
     for _ in range(10):
         model.classify_audio_samples(samples)
@@ -80,7 +80,7 @@ def inspect_model_size(input_dim=3136, hidden_dim1=64, hidden_dim2=32, num_class
             'compressed_model_bytes': disk_bytes,
             'reference_ram_bytes_assumed': pi_ram_bytes,
             'weights_percent_of_assumed_ram': params * 4 / pi_ram_bytes * 100,
-            'timing_input': 'synthetic_audio_1_second_not_microphone_capture',
+            'timing_input': f'synthetic_audio_{audio_features.WINDOW_SECONDS}_seconds_not_microphone_capture',
             'runs': 100, 'network_only_mean_ms': float(np.mean(forward_times)),
             'features_and_network_mean_ms': float(np.mean(full_times)),
             'features_and_network_p95_ms': float(np.percentile(full_times, 95)),

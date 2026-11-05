@@ -1,6 +1,6 @@
 # Hey BIS
 
-Detector de la frase **Hey BIS** en español e inglés. Implementa una red pequeña desde cero en NumPy: Log-Mel de un segundo (3,136 características), capas 64 y 32 con ReLU y tres clases: `background`, `other_speech` y `wake_word`.
+Detector de la frase **Hey BIS** en español e inglés. Implementa una red pequeña desde cero en NumPy: Log-Mel de tres segundos (9,536 características: 32 bandas por 298 frames), capas 64 y 32 con ReLU y tres clases: `background`, `other_speech` y `wake_word`.
 
 La computadora prepara los datos y entrena. **La Raspberry Pi ejecuta la detección desde un micrófono USB**, con los pesos entrenados. También se puede probar la inferencia en la computadora.
 
@@ -11,6 +11,8 @@ Los 2,000 audios ambientales ESC-50 locales ya tienen copias PCM mono de 16 kHz 
 **Faltan grabaciones propias de Hey BIS y otras palabras en ambos idiomas.** El programa bloquea el entrenamiento hasta que haya ejemplos de las tres clases y de ambos idiomas en train, validation y test. No incluye un modelo de voz preentrenado ni afirma exactitud sin medirla. Las pruebas sintéticas verifican el software; sus resultados no representan reconocimiento de voz real.
 
 Los 10 GB de `config.json` son una meta local opcional, no un requisito del PDF. Los 4 GB de RAM son una referencia configurable, no una comprobación del equipo conectado.
+
+La ventana de **3 segundos es provisional**: se comprobará que contenga la frase completa cuando el equipo entregue las grabaciones reales. El equipo se encarga de recolectar positivos con distintas personas y ambientes, y negativos de voz, incluidas palabras parecidas. Se mantiene la separación por hablante entre train, validation y test. Consulta [los acuerdos y pendientes](docs/pendientes.md) al revisar qué falta en próximas sesiones.
 
 ## Instalación
 
@@ -66,13 +68,13 @@ Graba únicamente con permiso claro de todas las personas que puedan escucharse.
 Ejemplos para un hablante de entrenamiento:
 
 ```powershell
-python microphone.py record --label wake_word --language es --speaker p01 --split train --seconds 1 --consent
-python microphone.py record --label wake_word --language en --speaker p01 --split train --seconds 1 --consent
-python microphone.py record --label other_speech --language es --speaker p01 --split train --seconds 5 --consent
-python microphone.py record --label other_speech --language en --speaker p01 --split train --seconds 5 --consent
+python microphone.py record --label wake_word --language es --speaker p01 --split train --seconds 3 --consent
+python microphone.py record --label wake_word --language en --speaker p01 --split train --seconds 3 --consent
+python microphone.py record --label other_speech --language es --speaker p01 --split train --seconds 3 --consent
+python microphone.py record --label other_speech --language en --speaker p01 --split train --seconds 3 --consent
 ```
 
-Puedes seleccionar el micrófono con `--device 1` o su nombre. Cada comando crea un WAV único y lo registra automáticamente. Pronuncia la frase completa al iniciar la captura de un segundo; revisa que no quede cortada. Las frases positivas de más de un segundo se rechazan en entrenamiento para evitar recortarlas sin avisar. Si necesitas frases más largas, tendrás que cambiar de forma consistente la ventana, las características y la arquitectura.
+Puedes seleccionar el micrófono con `--device 1` o su nombre. Cada comando crea un WAV único y lo registra automáticamente. La duración predeterminada de grabación es de tres segundos, aunque omitas `--seconds`. Pronuncia la frase completa dentro de la captura, conservando el ambiente que se escuche alrededor. Las frases positivas de más de tres segundos se rechazan en entrenamiento para evitar recortarlas sin avisar. Cuando haya grabaciones reales, se comprobará si esa duración alcanza antes de darla por definitiva.
 
 Repite con distintas voces, distancias y ruidos. Reserva otros hablantes, por ejemplo `p02` para `validation` y `p03` para `test`; el programa impide registrar al mismo identificador en dos particiones. Cada partición debe contener ambas clases de voz en español e inglés y fondo. El mínimo validado solo comprueba cobertura, no que el dataset sea suficiente para generalizar.
 
@@ -92,12 +94,13 @@ python train_wake_word.py --data-dir data --epochs 15 --batch-size 32 --lr 0.001
 ```
 
 - No se omiten archivos inválidos en silencio: un dataset incompleto o incorrecto produce un error y código de salida distinto de cero.
-- Los negativos largos se segmentan en ventanas de un segundo, incluida la cola. Las frases positivas cortas se rellenan con silencio.
+- Los negativos largos se segmentan en ventanas de tres segundos, incluida la cola. Las frases positivas cortas se rellenan con silencio hasta completar tres segundos.
 - Solo train se equilibra por sobremuestreo de clases. Validation y test mantienen sus distribuciones.
 - Se usa la época con menor pérdida de validación. El umbral se elige en validation, maximizando sensibilidad con una tasa de falsos positivos por ventana de hasta `--max-false-positive-rate` (0.01 por defecto). Esa tasa no equivale a falsas activaciones por hora.
 - No hay un límite oculto de 500 ejemplos. `--max-per-class N` limita opcionalmente solo train para experimentos rápidos, tomando los primeros N por clase según el manifiesto.
 - El entrenamiento guarda pesos, arquitectura, etiquetas, versión de características, umbral y huellas del manifiesto y del audio. El historial, pérdidas y configuración quedan en `output/wake_word_model.training.json`.
 - Test no se usa para elegir época o umbral. Mantén el manifiesto y sus audios fijos durante el experimento; no edites ni reemplaces WAV después de entrenar.
+- Los pesos de la versión anterior de un segundo son incompatibles con la entrada nueva de 9,536 características. Debes reentrenar; el cargador los rechaza con un mensaje explícito.
 
 El cargador mantiene las características en RAM; no carga el audio completo del dataset. Su consumo crece con el número de ventanas, por lo que el entrenamiento se realiza en la computadora. Para datasets mucho mayores, usa el límite explícito de train durante experimentos o adapta el cargador a lotes desde disco.
 
@@ -110,7 +113,7 @@ python plot_training.py output/wake_word_model.training.json --output output/los
 
 ## 4. Clasificar y evaluar
 
-Clip de hasta un segundo:
+Clip de hasta tres segundos:
 
 ```powershell
 python audio_classifier.py --weights output/wake_word_model.npz --wav data/audio/recorded/CLIP.wav
@@ -136,7 +139,7 @@ python evaluate_wake_word.py --data-dir data --weights output/wake_word_model.np
 
 Se guardan matriz de confusión, precisión y sensibilidad de activación, sensibilidad por idioma y eventos falsos por hora. Los resultados de fondo y de otras palabras se separan de la conversación confirmada. Si no proporcionas conversación, la métrica correspondiente queda pendiente, no se sustituye por ruido ambiental.
 
-La política predeterminada usa ventanas de un segundo cada 0.25 s. Una racha positiva cuenta como un solo evento; para un nuevo evento debe haber una ventana negativa y haber pasado el tiempo de espera, un segundo. `--hop-size` y `--cooldown` se comparten entre análisis de archivos, evaluación de eventos y escucha en vivo. La duración de la métrica es la del audio real, sin sumar ventanas solapadas. No mezcles resultados de políticas distintas.
+La política predeterminada usa ventanas de tres segundos cada 0.25 s. Una racha positiva cuenta como un solo evento; para un nuevo evento debe haber una ventana negativa y haber pasado el tiempo de espera, un segundo. `--hop-size` y `--cooldown` se comparten entre análisis de archivos, evaluación de eventos y escucha en vivo. La duración de la métrica es la del audio real, sin sumar ventanas solapadas. No mezcles resultados de políticas distintas.
 
 ## 5. Demo y mediciones en Raspberry Pi
 
@@ -153,7 +156,7 @@ python microphone.py listen --weights output/wake_word_model.npz --log output/pi
 
 Para terminar pulsa Ctrl+C. También puedes limitar la duración con `--seconds 60`. Si el micrófono no acepta 16 kHz mono, selecciona un dispositivo compatible; se informa el error, no se cambia la frecuencia sin remuestrear. La escucha no guarda las voces, solo predicciones, eventos, configuración y tiempos de procesamiento. Un desbordamiento de captura detiene la sesión porque sus tiempos y resultados estarían incompletos.
 
-Los registros contienen el promedio de procesamiento y el percentil 95 de las últimas 10,000 ventanas. Incluyen extracción de características y red; excluyen la espera del micrófono y la acumulación inicial de un segundo. Un tiempo bajo de procesamiento no equivale a una respuesta instantánea.
+Los registros contienen el promedio de procesamiento y el percentil 95 de las últimas 10,000 ventanas. Incluyen extracción de características y red; excluyen la espera del micrófono y la acumulación inicial de tres segundos. Un tiempo bajo de procesamiento no equivale a una respuesta instantánea.
 
 Para medir recursos ejecuta en la Pi, con el dataset disponible:
 

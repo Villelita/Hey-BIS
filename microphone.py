@@ -14,6 +14,7 @@ import wave
 
 import numpy as np
 
+import audio_features
 from audio_classifier import ActivationGate, AudioNoiseClassifier
 from import_esc50 import write_csv
 from main import FIELDS, initialize
@@ -33,8 +34,8 @@ def validate_recording(data_dir, label, language, speaker, split, seconds):
         raise ValueError("speaker debe ser un identificador simple, por ejemplo p01.")
     if not np.isfinite(seconds) or not 0 < seconds <= 300:
         raise ValueError("La duracion debe estar en (0, 300] segundos.")
-    if label == "wake_word" and seconds > 1:
-        raise ValueError("Graba la frase completa en un clip de hasta 1 segundo.")
+    if label == "wake_word" and seconds > audio_features.WINDOW_SECONDS:
+        raise ValueError(f"Graba la frase completa en un clip de hasta {audio_features.WINDOW_SECONDS} segundos.")
     if language not in ({"none"} if label == "background" else {"es", "en"}):
         raise ValueError("Usa es/en para voz y none para fondo.")
     manifest = data_dir / "manifest.csv"
@@ -58,7 +59,7 @@ def record(args):
                               args.speaker, args.split, args.seconds)
     sd = sounddevice_module()
     print(f"Grabando {args.seconds}s. Pronuncia la frase al comenzar." , flush=True)
-    samples = sd.rec(round(args.seconds * 16000), samplerate=16000, channels=1,
+    samples = sd.rec(round(args.seconds * audio_features.SAMPLE_RATE), samplerate=audio_features.SAMPLE_RATE, channels=1,
                      dtype="int16", device=args.device, blocking=True)
     status = sd.get_status()
     if status:
@@ -69,7 +70,7 @@ def record(args):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("xb") as target:
         with wave.open(target, "wb") as audio:
-            audio.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+            audio.setparams((1, 2, audio_features.SAMPLE_RATE, 0, "NONE", "not compressed"))
             audio.writeframes(samples.astype("<i2", copy=False).tobytes())
     rows.append(dict(zip(FIELDS, (relative.as_posix(), args.label, args.language,
                                   args.speaker, args.split, "yes"))))
@@ -80,9 +81,9 @@ def record(args):
 def listen(args):
     classifier = AudioNoiseClassifier(args.weights, args.threshold)
     gate = ActivationGate(args.cooldown)
-    if (not 1 <= args.hop_size <= 16000 or args.seconds is not None
+    if (not 1 <= args.hop_size <= audio_features.WINDOW_SAMPLES or args.seconds is not None
             and (not np.isfinite(args.seconds) or args.seconds <= 0)):
-        raise ValueError("hop-size debe estar en [1,16000]; seconds debe ser positivo.")
+        raise ValueError(f"hop-size debe estar en [1,{audio_features.WINDOW_SAMPLES}]; seconds debe ser positivo.")
     sd = sounddevice_module()
     blocks = queue.Queue(maxsize=32)
     dropped = []
@@ -108,10 +109,12 @@ def listen(args):
         if log:
             log.write(json.dumps({"type": "session", "platform": platform.platform(),
                 "device": str(device), "threshold": classifier.wake_threshold,
-                "sample_rate": 16000, "hop_samples": args.hop_size,
+                "sample_rate": audio_features.SAMPLE_RATE, "hop_samples": args.hop_size,
+                "window_seconds": audio_features.WINDOW_SECONDS,
+                "window_samples": audio_features.WINDOW_SAMPLES,
                 "cooldown_seconds": args.cooldown, "started_unix": time.time()}) + "\n")
             log.flush()
-        with sd.InputStream(samplerate=16000, channels=1, dtype="float32", device=args.device,
+        with sd.InputStream(samplerate=audio_features.SAMPLE_RATE, channels=1, dtype="float32", device=args.device,
                             blocksize=args.hop_size, callback=callback):
             started = time.perf_counter()
             print("Escuchando Hey BIS. Ctrl+C para terminar.", flush=True)
@@ -123,14 +126,14 @@ def listen(args):
                 except queue.Empty:
                     continue
                 buffer = np.concatenate((buffer, block))
-                while len(buffer) >= 16000:
+                while len(buffer) >= audio_features.WINDOW_SAMPLES:
                     tick = time.perf_counter()
-                    result = classifier.classify_samples(buffer[:16000])
+                    result = classifier.classify_samples(buffer[:audio_features.WINDOW_SAMPLES])
                     latency = (time.perf_counter() - tick) * 1000
                     latencies.append(latency)
                     window_count += 1
                     processing_ms_sum += latency
-                    timestamp = (processed + 16000) / 16000
+                    timestamp = (processed + audio_features.WINDOW_SAMPLES) / audio_features.SAMPLE_RATE
                     activation = gate.update(result["is_wake_word"], timestamp)
                     item = {"time_end_sec": timestamp, **result, "activation": activation,
                             "processing_ms": latency}
@@ -162,7 +165,8 @@ def main():
     rec.add_argument("--language", choices=["es", "en", "none"], required=True)
     rec.add_argument("--speaker", required=True)
     rec.add_argument("--split", choices=["train", "validation", "test"], required=True)
-    rec.add_argument("--seconds", type=float, default=1.0)
+    rec.add_argument("--seconds", type=float, default=audio_features.WINDOW_SECONDS,
+                     help="Duracion de la grabacion (3 segundos por defecto)")
     rec.add_argument("--consent", action="store_true")
     live = commands.add_parser("listen", help="Demo en vivo con pesos entrenados")
     live.add_argument("--weights", type=Path, required=True)
