@@ -14,6 +14,7 @@ from audio_classifier import AudioNoiseClassifier
 
 class NeuralNetworkTests(unittest.TestCase):
     def setUp(self):
+        np.random.seed(7)
         self.model = neural_network.WakeWordNeuralNetwork(
             input_dim=3136,
             hidden_dim1=32,
@@ -68,9 +69,15 @@ class NeuralNetworkTests(unittest.TestCase):
         self.assertFalse(np.isnan(features).any())
 
     def test_classifier_classify_samples(self):
-        classifier = AudioNoiseClassifier()
-        fake_audio = np.random.randn(16000).astype(np.float32)
-        result = classifier.classify_samples(fake_audio)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "model.npz"
+            x = np.random.randn(3, 3136).astype(np.float32)
+            optimizer = neural_network.AdamOptimizer(self.model.dense_layers)
+            self.model.train_step(x, np.array([0, 1, 2]), optimizer)
+            self.model.save_weights(path)
+            classifier = AudioNoiseClassifier(path)
+            fake_audio = np.random.randn(16000).astype(np.float32)
+            result = classifier.classify_samples(fake_audio)
 
         self.assertIn("label", result)
         self.assertIn("is_wake_word", result)

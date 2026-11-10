@@ -9,6 +9,33 @@ import wave
 import numpy as np
 from scipy.signal import spectrogram
 
+SAMPLE_RATE = 16_000
+WINDOW_SAMPLES = 16_000
+FEATURE_VERSION = "logmel32-98-zscore-v1"
+
+
+def validate_samples(samples: np.ndarray) -> np.ndarray:
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.ndim != 1 or not len(samples) or not np.isfinite(samples).all():
+        raise ValueError("Se requiere audio mono no vacio con muestras finitas.")
+    return samples
+
+
+def audio_windows(samples: np.ndarray, hop_size: int = 4_000):
+    """Ventanas de un segundo, incluida la cola; tiempos limitados al audio real."""
+    samples = validate_samples(samples)
+    if not 0 < hop_size <= WINDOW_SAMPLES:
+        raise ValueError("hop_size debe estar entre 1 y 16000 muestras.")
+    start = 0
+    while True:
+        end = min(start + WINDOW_SAMPLES, len(samples))
+        # El relleno a la derecha conserva el origen temporal de la ventana.
+        window = np.pad(samples[start:end], (0, WINDOW_SAMPLES - (end - start)))
+        yield start, end, window
+        if end == len(samples):
+            break
+        start += hop_size
+
 
 def hz_to_mel(hz: float | np.ndarray) -> float | np.ndarray:
     """Convierte frecuencia de Hertz a la escala Mel."""
@@ -32,7 +59,7 @@ def build_mel_filterbank(
     mel_max = hz_to_mel(f_max)
     mel_points = np.linspace(mel_min, mel_max, n_mels + 2)
     hz_points = mel_to_hz(mel_points)
-    
+
     # Índices de bins de la FFT
     bin_indices = np.floor((n_fft + 1) * hz_points / sample_rate).astype(int)
     bin_indices = np.clip(bin_indices, 0, n_fft // 2)
@@ -70,12 +97,16 @@ def load_wav(path: str | Path, target_rate: int = 16_000) -> np.ndarray:
 
         raw = audio.readframes(n_frames)
 
+    if not n_frames or len(raw) != n_frames * 2:
+        raise ValueError(f"Audio vacio o truncado: {path}")
+
     samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     return samples
 
 
 def pad_or_crop(samples: np.ndarray, target_length: int = 16_000) -> np.ndarray:
     """Ajusta la señal a exactamente target_length muestras (1.0 s por defecto)."""
+    samples = validate_samples(samples)
     current_length = len(samples)
     if current_length == target_length:
         return samples.copy()
@@ -83,7 +114,7 @@ def pad_or_crop(samples: np.ndarray, target_length: int = 16_000) -> np.ndarray:
         # Recorta centrado
         start = (current_length - target_length) // 2
         return samples[start : start + target_length].copy()
-    
+
     # Rellena con ceros centrado
     pad_left = (target_length - current_length) // 2
     pad_right = target_length - current_length - pad_left

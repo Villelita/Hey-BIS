@@ -1,7 +1,8 @@
-"""Etapa 1 de Hey BIS: preparar y revisar datos, sin entrenar todavia."""
+"""Preparar y revisar el manifiesto y la integridad del dataset Hey BIS."""
 
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 import wave
@@ -34,7 +35,7 @@ def initialize(data_dir):
     print("Listo. Agrega grabaciones reales y sus filas en manifest.csv.")
 
 
-def inspect_wav(path, block_bytes):
+def inspect_wav(path, block_bytes, with_digest=False):
     """Comprueba PCM mono 16 kHz/16 bits leyendo solo un bloque a la vez."""
     with wave.open(str(path), "rb") as audio:
         if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate(),
@@ -42,25 +43,32 @@ def inspect_wav(path, block_bytes):
             raise ValueError("Se requiere WAV PCM, mono, 16000 Hz y 16 bits.")
         expected_bytes = audio.getnframes() * 2
         total_bytes = 0
+        digest = hashlib.sha256()
         frames_per_block = max(1, block_bytes // 2)
         while True:
             block = audio.readframes(frames_per_block)
             if not block:
                 break
             total_bytes += len(block)
+            digest.update(block)
             # Liberar antes de pedir el siguiente bloque evita retener dos.
             del block
         if total_bytes != expected_bytes:
             raise ValueError("Audio truncado: faltan muestras declaradas en el WAV.")
         if total_bytes == 0:
             raise ValueError("La grabacion esta vacia.")
-    return total_bytes / 32_000
+    duration = total_bytes / 32_000
+    return (duration, digest.hexdigest()) if with_digest else duration
 
 
 def inspect_dataset(data_dir, config):
     root = data_dir.resolve(strict=True)
     seen_paths = set()
     speaker_splits = {}
+    content_splits = {}
+    dataset_digest = hashlib.sha256((root / "manifest.csv").read_bytes())
+    language_counts = {split: {label: {lang: 0 for lang in ("es", "en")}
+                              for label in ("wake_word", "other_speech")} for split in sorted(SPLITS)}
     counts = {split: {label: 0 for label in sorted(LABELS)} for split in sorted(SPLITS)}
     total_bytes = 0
     seconds = 0.0
@@ -99,12 +107,18 @@ def inspect_dataset(data_dir, config):
                     raise ValueError("El mismo archivo aparece mas de una vez.")
                 if speaker in speaker_splits and speaker_splits[speaker] != split:
                     raise ValueError(f"{speaker} aparece en varias particiones; hay fuga de datos.")
-                duration = inspect_wav(path, config["read_block_bytes"])
+                duration, content_digest = inspect_wav(path, config["read_block_bytes"], with_digest=True)
+                if content_digest in content_splits and content_splits[content_digest] != split:
+                    raise ValueError("El mismo contenido de audio aparece en varias particiones; hay fuga de datos.")
+                content_splits[content_digest] = split
+                dataset_digest.update(content_digest.encode("ascii"))
                 seen_paths.add(path)
                 speaker_splits[speaker] = split
                 total_bytes += path.stat().st_size
                 seconds += duration
                 counts[split][label] += 1
+                if label != "background":
+                    language_counts[split][label][language] += 1
             except (OSError, ValueError, wave.Error, EOFError) as error:
                 errors.append(f"Fila {line}: {error}")
     if not seen_paths:
@@ -115,6 +129,7 @@ def inspect_dataset(data_dir, config):
                             if not any(counts[split][label] for split in SPLITS))
     return {
         "files": len(seen_paths),
+        "dataset_sha256": dataset_digest.hexdigest(),
         "dataset_bytes": total_bytes,
         "storage_bytes": storage_bytes,
         "dataset_target_bytes": target_bytes,
@@ -124,6 +139,12 @@ def inspect_dataset(data_dir, config):
         "audio_hours": seconds / 3600,
         "counts": counts,
         "missing_labels": missing_labels,
+        "language_counts": language_counts,
+        "training_missing": [f"{split}/{label}" for split in sorted(SPLITS)
+                             for label in sorted(LABELS) if not counts[split][label]] + [
+            f"{split}/{label}/{language}" for split in sorted(SPLITS)
+            for label in ("wake_word", "other_speech") for language in ("es", "en")
+            if not language_counts[split][label][language]],
         "errors": errors,
     }
 
@@ -139,16 +160,18 @@ def main():
         if command == "inspect":
             subparser.add_argument("--require-target", action="store_true",
                                    help="Fallar si aun no se alcanza la meta de datos")
+            subparser.add_argument("--require-training-ready", action="store_true",
+                                   help="Exigir clases e idiomas en las tres particiones")
     args = parser.parse_args()
     try:
         config = load_config()
         if args.command == "plan":
             print("Proyecto 1: detectar Hey BIS en espanol e ingles.")
-            print("Raspberry Pi: guardar audio y manifest.csv.")
-            print("Computadora: validar, preparar, entrenar y evaluar.")
+            print("Raspberry Pi: ejecutar inferencia con microfono USB y medir la demo.")
+            print("Computadora: preparar datos y entrenar; copiar pesos entrenados a la Pi.")
             print(f"Meta de audio para almacenar en la Pi: {config['dataset_target_bytes']:,} bytes.")
             print(f"RAM de la Pi: {config['pi_ram_bytes']:,} bytes.")
-            print("La meta de datos no es un limite de almacenamiento. No hay que llenar la RAM.")
+            print("10 GB es una meta local opcional, no un requisito del PDF. RAM: supuesto por verificar.")
             print(f"Bloque de lectura en la computadora: {config['read_block_bytes']:,} bytes.")
             print("La conexion y los recursos reales de la Pi siguen pendientes de comprobar.")
         elif args.command == "init":
@@ -156,7 +179,8 @@ def main():
         else:
             report = inspect_dataset(args.data_dir, config)
             print(json.dumps(report, indent=2, ensure_ascii=False))
-            if report["errors"] or (args.require_target and not report["target_reached"]):
+            if (report["errors"] or (args.require_target and not report["target_reached"])
+                    or (args.require_training_ready and report["training_missing"])):
                 return 1
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Error: {error}")

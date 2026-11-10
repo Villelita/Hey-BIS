@@ -4,7 +4,7 @@ A modern, minimalist, and futuristic web interface designed for a Raspberry Pi v
 
 Features a dark mode theme with an obsidian black / deep dark violet background, a real-time glowing 3D neural core (deformed wireframe icosphere with cyan-blue and magenta-pink neon lighting, surrounded by a field of floating synaptic particles), and a sleek glassmorphism HUD card for real-time speech transcription.
 
----
+Los 10 GB de `config.json` son una meta local opcional, no un requisito del PDF. Los 4 GB de RAM son una referencia configurable, no una comprobación del equipo conectado.
 
 ## 🌟 Key Highlights
 
@@ -20,7 +20,11 @@ Features a dark mode theme with an obsidian black / deep dark violet background,
 - **Audio Reactive Engine**: Integrates Web Audio API (`AnalyserNode`) to capture live microphone input and pulse the core in real time.
 - **Raspberry Pi Integration Bridge**: Includes a ready-to-use WebSocket client and public JavaScript API (`window.Bis`), along with a companion Python backend service.
 
----
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-audio.txt
+.\.venv\Scripts\Activate.ps1
+```
 
 ## 📁 Project Architecture
 
@@ -45,7 +49,7 @@ hey bis/
 └── README.md                  # Comprehensive documentation
 ```
 
----
+`prepare_audio.py` genera copias en una subcarpeta `pcm16k` de cada ubicación original y actualiza el manifiesto al terminar todas las conversiones. Guarda el manifiesto previo y la trazabilidad en `data/sources/preparation/`. No modifica ni sobrescribe audios originales. Repetir el comando no vuelve a convertir archivos ya preparados. Acepta PCM mono de 16 bits; otros formatos deben convertirse primero. Para limitar memoria, rechaza archivos por convertir de más de cinco minutos.
 
 ## 🚀 Quick Start
 
@@ -141,7 +145,7 @@ Send standard JSON messages to `ws://localhost:8765`:
 }
 ```
 
----
+Se guardan matriz de confusión, precisión y sensibilidad de activación, sensibilidad por idioma y eventos falsos por hora. Los resultados de fondo y de otras palabras se separan de la conversación confirmada. Si no proporcionas conversación, la métrica correspondiente queda pendiente, no se sustituye por ruido ambiental.
 
 ## 💻 JavaScript API (`window.Bis`)
 
@@ -164,7 +168,7 @@ window.Bis.setAudioLevel(0.75);
 console.log(window.Bis.getState()); // 'speaking'
 ```
 
----
+## Entrega del curso
 
 ## ⌨️ Interactive Controls & Keyboard Shortcuts
 
