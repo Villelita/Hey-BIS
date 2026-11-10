@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hey BIS - Detección de Wake Word en Red Local</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Encabezado Principal -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="logo-badge">BIS</div>
+        <div>
+          <h1>Hey BIS</h1>
+          <p class="subtitle">Detección de Wake Word &amp; Clasificación de Audio con Red Neuronal</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <span id="connection-indicator" class="status-pill status-connecting">
+          <span class="dot"></span> <span id="connection-text">Conectando...</span>
+        </span>
+      </div>
+    </header>
+
+    <!-- Tarjeta de Acceso en Red Local -->
+    <section class="network-card">
+      <div class="network-info">
+        <div class="network-icon">🌐</div>
+        <div class="network-details">
+          <h3>Acceso desde cualquier dispositivo en la Red Local</h3>
+          <p>Conéctate desde tu teléfono móvil u otra computadora en la misma red Wi-Fi ingresando a:</p>
+          <div class="ip-chips-container" id="ip-chips">
+            <span class="ip-chip loading">Cargando direcciones...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cuadrícula Principal -->
+    <main class="main-grid">
+      <!-- Columna Izquierda: Entrada de Audio -->
+      <section class="card input-section">
+        <div class="card-header">
+          <h2>Entrada de Audio</h2>
+          <div class="tabs-nav">
+            <button class="tab-btn active" data-tab="tab-mic">🎙️ Micrófono</button>
+            <button class="tab-btn" data-tab="tab-file">📁 Archivo WAV</button>
+            <button class="tab-btn" data-tab="tab-test">⚡ Pruebas Rápidas</button>
+          </div>
+        </div>
+
+        <!-- Pestaña 1: Micrófono en Vivo -->
+        <div id="tab-mic" class="tab-content active">
+          <div class="mic-controls">
+            <div class="record-button-container">
+              <button id="btn-record" class="btn-record" title="Presiona para grabar audio">
+                <div class="record-ring"></div>
+                <div class="record-icon">
+                  <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                  </svg>
+                </div>
+              </button>
+            </div>
+
+            <div class="mic-status-label" id="record-status">Haz clic para grabar 1.5s (o decir "Hey BIS")</div>
+
+            <div class="mic-options">
+              <label for="record-duration-select">Duración:</label>
+              <select id="record-duration-select" class="select-input">
+                <option value="1.0">1.0 segundo (Estricto)</option>
+                <option value="1.5" selected>1.5 segundos (Recomendado)</option>
+                <option value="2.0">2.0 segundos (Holgado)</option>
+                <option value="manual">Manual (Iniciar / Detener)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Osciloscopio en tiempo real -->
+          <div class="canvas-wrapper">
+            <canvas id="waveform-canvas" width="600" height="100"></canvas>
+            <span class="canvas-tag">Forma de onda en vivo (16 kHz mono)</span>
+          </div>
+
+          <!-- Reproductor del último audio capturado -->
+          <div id="playback-container" class="playback-container hidden">
+            <label>Último audio capturado:</label>
+            <audio id="audio-preview" controls></audio>
+          </div>
+
+          <!-- Nota de permisos en red local -->
+          <div class="note-box">
+            <strong>💡 Nota sobre el micrófono en la red local:</strong>
+            Los navegadores permiten acceso directo al micrófono en <code>localhost</code> y sitios <code>HTTPS</code>. Si entras desde tu celular por HTTP y el navegador bloquea el micrófono, puedes usar la pestaña <strong>"Archivo WAV"</strong> para subir grabaciones o habilitar el origen en <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>.
+          </div>
+        </div>
+
+        <!-- Pestaña 2: Subir Archivo WAV -->
+        <div id="tab-file" class="tab-content">
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-icon">📂</div>
+            <p class="drop-text">Arrastra y suelta aquí tu archivo <strong>.WAV</strong></p>
+            <span class="drop-subtext">o haz clic para seleccionar desde tu dispositivo</span>
+            <input type="file" id="file-input" accept=".wav,audio/wav,audio/x-wav,audio/*" class="file-input-hidden">
+          </div>
+
+          <div id="file-info" class="file-info hidden">
+            <span id="file-name" class="file-name">audio.wav</span>
+            <button id="btn-clear-file" class="btn-text">Quitar</button>
+          </div>
+
+          <div id="file-playback-container" class="playback-container hidden">
+            <label>Vista previa de audio:</label>
+            <audio id="file-audio-preview" controls></audio>
+          </div>
+
+          <button id="btn-analyze-file" class="btn-primary full-width" disabled>
+            ⚡ Clasificar Archivo con la Red Neuronal
+          </button>
+        </div>
+
+        <!-- Pestaña 3: Señales de Prueba -->
+        <div id="tab-test" class="tab-content">
+          <p class="section-desc">Prueba la red neuronal inmediatamente generando señales sintéticas estándar a 16 kHz:</p>
+          <div class="quick-test-buttons">
+            <button class="btn-secondary" id="btn-test-silence">
+              <span class="test-icon">🔇</span>
+              <div class="test-text">
+                <strong>Silencio Puro</strong>
+                <span>Señal plana (1s)</span>
+              </div>
+            </button>
+
+            <button class="btn-secondary" id="btn-test-noise">
+              <span class="test-icon">🌊</span>
+              <div class="test-text">
+                <strong>Ruido Blanco</strong>
+                <span>Sonido ambiental simulado (1s)</span>
+              </div>
+            </button>
+
+            <button class="btn-secondary" id="btn-test-tone">
+              <span class="test-icon">🔔</span>
+              <div class="test-text">
+                <strong>Tono 440 Hz</strong>
+                <span>Frecuencia pura continua (1s)</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Columna Derecha: Resultados de la IA -->
+      <section class="card results-section">
+        <div class="card-header">
+          <h2>Diagnóstico &amp; Predicción de la IA</h2>
+          <span class="badge" id="inference-time-badge">Listo</span>
+        </div>
+
+        <!-- Banner del Veredicto Principal -->
+        <div id="verdict-banner" class="verdict-banner verdict-waiting">
+          <div class="verdict-icon" id="verdict-icon">💤</div>
+          <div class="verdict-content">
+            <h3 id="verdict-title">Esperando audio</h3>
+            <p id="verdict-subtitle">Graba o sube un clip de audio para analizarlo</p>
+          </div>
+          <div class="confidence-pill" id="confidence-pill">0%</div>
+        </div>
+
+        <!-- Barras de Probabilidades de las 3 Clases -->
+        <div class="probabilities-container">
+          <h4>Distribución de Probabilidades (Softmax)</h4>
+
+          <!-- Clase 1: Hey BIS (Wake Word) -->
+          <div class="prob-row" id="prob-row-wake">
+            <div class="prob-label-row">
+              <span class="prob-title">
+                <span class="prob-indicator indicator-wake"></span>
+                <strong>Hey BIS</strong> (Palabra clave)
+              </span>
+              <span class="prob-value" id="val-wake">0.0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-wake" id="bar-wake" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Clase 2: Voz Común (Other Speech) -->
+          <div class="prob-row" id="prob-row-speech">
+            <div class="prob-label-row">
+              <span class="prob-title">
+                <span class="prob-indicator indicator-speech"></span>
+                <strong>Otra Voz</strong> (Voz común)
+              </span>
+              <span class="prob-value" id="val-speech">0.0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-speech" id="bar-speech" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Clase 3: Ruido de Fondo (Background) -->
+          <div class="prob-row" id="prob-row-bg">
+            <div class="prob-label-row">
+              <span class="prob-title">
+                <span class="prob-indicator indicator-bg"></span>
+                <strong>Ruido de Fondo</strong> (Background)
+              </span>
+              <span class="prob-value" id="val-bg">0.0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-bg" id="bar-bg" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Métricas Técnicas -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Latencia Inferencia</span>
+            <span class="metric-val" id="metric-latency">-- ms</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Duración Señal</span>
+            <span class="metric-val" id="metric-duration">-- s</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Frecuencia</span>
+            <span class="metric-val">16,000 Hz</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Espectrograma</span>
+            <span class="metric-val">32 Mel × 98</span>
+          </div>
+        </div>
+
+        <!-- Configuración del Umbral -->
+        <div class="settings-box">
+          <div class="settings-header">
+            <label for="threshold-slider">
+              <strong>Umbral de Activación (Wake Threshold):</strong>
+              <span id="threshold-val">0.60</span>
+            </label>
+            <span class="settings-hint">Exigencia mínima para despertar</span>
+          </div>
+          <div class="slider-container">
+            <input type="range" id="threshold-slider" min="0.10" max="0.95" step="0.05" value="0.60">
+          </div>
+        </div>
+
+        <!-- Información de la Red Neuronal -->
+        <div class="model-info-box">
+          <h4>Arquitectura de la Red Neuronal</h4>
+          <p id="model-architecture-text">3136 características Log-Mel → 64 (ReLU) → 32 (ReLU) → 3 (Softmax)</p>
+          <div class="model-meta">
+            <span id="model-weights-status" class="model-status-tag">Cargando modelo...</span>
+            <span id="model-params-tag" class="model-status-tag">202,979 parámetros</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Hey BIS &bull; Sistema de Reconocimiento de Voz &bull; Optimizado para Raspberry Pi y Red Local
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
