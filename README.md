@@ -108,6 +108,19 @@ pip install -r python/requirements.txt
 python3 python/assistant_backend.py
 ```
 
+For offline voice testing, install `vosk` and download the small Spanish model from the
+[Vosk model list](https://alphacephei.com/vosk/models). Extract it and pass its directory to the backend.
+
+```bash
+pip install vosk
+python3 python/assistant_backend.py --host localhost --vosk-model /path/to/vosk-model-small-es-0.42
+```
+
+Open the kiosk over local HTTP. Say “Hey Bis” and wait for **Listening** before asking a question,
+or say the wake phrase and a short command together. After activation, you have up to six seconds
+to start speaking, and each captured phrase is limited to three seconds. Try “¿Qué hora es?” to
+get the current time. For other queries, the backend can repeat the transcription.
+
 ### 2. Protocol Specification (JSON via WebSocket)
 Send standard JSON messages to `ws://localhost:8765`:
 

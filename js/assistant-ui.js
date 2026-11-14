@@ -44,16 +44,23 @@ class AssistantUI {
   initManualMicBtn() {
     const btn = document.getElementById('btn-manual-mic');
     if (btn) {
-      btn.addEventListener('click', () => {
-        if (window.app && window.app.audio && !window.app.audio.isMicActive) {
-          window.app.audio.start();
+      btn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (this.state !== 'idle') return;
+
+        const { audio, bridge } = window.app;
+        const socket = bridge.ws;
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ action: 'start_listening' }));
+          return;
         }
-        if (this.state === 'idle') {
-          this.setState('listening');
-          this.setTranscript('"Hey Bis..."', 'user', true);
-          this.updateSubtext('🟢 Micrófono escuchando... Di tu pregunta');
-        } else {
-          this.setState('idle');
+
+        if (!audio.recognition) {
+          this.updateSubtext('Conecta el backend para usar el micrófono.');
+          return;
+        }
+        if ((audio.isMicActive || await audio.start()) && this.state === 'idle') {
+          audio.triggerWake('');
         }
       });
     }
@@ -237,6 +244,7 @@ class AssistantUI {
   // ==========================================================================
   initPrompts() {
     this.dom.promptChips.forEach(chip => {
+      if (chip.id === 'btn-manual-mic') return;
       chip.addEventListener('click', () => {
         const query = chip.getAttribute('data-query');
         const reply = chip.getAttribute('data-reply');
