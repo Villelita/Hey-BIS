@@ -1,0 +1,17 @@
+[Unit]
+Description=Bis Voice Assistant Kiosk Interface
+After=graphical.target network.target
+
+[Service]
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/bis
+ExecStart=/bin/bash /home/pi/bis/scripts/start-kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
+
