@@ -43,19 +43,19 @@ class AudioNoiseClassifier:
     def classify_file(self, wav_path: str | Path) -> dict:
         samples = audio_features.load_wav(wav_path)
         if len(samples) > audio_features.WINDOW_SAMPLES:
-            raise ValueError("El archivo supera un segundo. Usa --scan para analizarlo completo.")
+            raise ValueError(f"El archivo supera {audio_features.WINDOW_SECONDS} segundos. Usa --scan para analizarlo completo.")
         return self.classify_samples(samples)
 
     def classify_samples(self, samples: np.ndarray) -> dict:
         samples = audio_features.validate_samples(samples)
         if len(samples) > audio_features.WINDOW_SAMPLES:
-            raise ValueError("Clasifica ventanas de hasta un segundo; usa scan_streaming_window.")
+            raise ValueError(f"Clasifica ventanas de hasta {audio_features.WINDOW_SECONDS} segundos; usa scan_streaming_window.")
         return self.model.classify_audio_samples(samples, wake_threshold=self.wake_threshold)
 
-    def scan_streaming_window(self, long_samples: np.ndarray, window_size: int = 16_000,
+    def scan_streaming_window(self, long_samples: np.ndarray, window_size: int = audio_features.WINDOW_SAMPLES,
                               hop_size: int = 4_000, cooldown: float = 1.0) -> list[dict]:
         if window_size != audio_features.WINDOW_SAMPLES:
-            raise ValueError("Este modelo utiliza ventanas de 16000 muestras.")
+            raise ValueError(f"Este modelo utiliza ventanas de {audio_features.WINDOW_SAMPLES} muestras.")
         gate = ActivationGate(cooldown)
         detections = []
         for start, end, window in audio_features.audio_windows(long_samples, hop_size):

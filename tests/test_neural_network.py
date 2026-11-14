@@ -16,7 +16,7 @@ class NeuralNetworkTests(unittest.TestCase):
     def setUp(self):
         np.random.seed(7)
         self.model = neural_network.WakeWordNeuralNetwork(
-            input_dim=3136,
+            input_dim=audio_features.FEATURE_DIM,
             hidden_dim1=32,
             hidden_dim2=16,
             num_classes=3,
@@ -24,7 +24,7 @@ class NeuralNetworkTests(unittest.TestCase):
 
     def test_forward_output_shape_and_probability_sum(self):
         batch_size = 5
-        x = np.random.randn(batch_size, 3136).astype(np.float32)
+        x = np.random.randn(batch_size, audio_features.FEATURE_DIM).astype(np.float32)
         probs = self.model.predict_proba(x)
 
         self.assertEqual(probs.shape, (batch_size, 3))
@@ -33,7 +33,7 @@ class NeuralNetworkTests(unittest.TestCase):
         np.testing.assert_allclose(row_sums, np.ones(batch_size), atol=1e-5)
 
     def test_train_step_reduces_loss(self):
-        x = np.random.randn(8, 3136).astype(np.float32)
+        x = np.random.randn(8, audio_features.FEATURE_DIM).astype(np.float32)
         y = np.array([0, 1, 2, 0, 1, 2, 0, 1])
         optimizer = neural_network.AdamOptimizer(self.model.dense_layers, learning_rate=0.05)
 
@@ -50,7 +50,7 @@ class NeuralNetworkTests(unittest.TestCase):
             self.assertTrue(weight_path.is_file())
 
             new_model = neural_network.WakeWordNeuralNetwork(
-                input_dim=3136,
+                input_dim=audio_features.FEATURE_DIM,
                 hidden_dim1=32,
                 hidden_dim2=16,
                 num_classes=3,
@@ -61,22 +61,29 @@ class NeuralNetworkTests(unittest.TestCase):
             np.testing.assert_array_equal(self.model.dense3.bias, new_model.dense3.bias)
 
     def test_audio_feature_extraction(self):
-        # 1 segundo a 16 kHz
-        fake_audio = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 16000)).astype(np.float32)
+        # Tres segundos completos a 16 kHz producen 32 bandas x 298 frames.
+        fake_audio = np.sin(2 * np.pi * 440 * np.arange(48000) / 16000).astype(np.float32)
         features = audio_features.extract_features(fake_audio, n_mels=32)
 
-        self.assertEqual(features.shape, (3136,))
+        self.assertEqual(features.shape, (9536,))
         self.assertFalse(np.isnan(features).any())
+
+    def test_features_include_sound_outside_the_old_one_second_center(self):
+        silence = np.zeros(48000, dtype=np.float32)
+        with_end_sound = silence.copy()
+        with_end_sound[40000:] = np.sin(2 * np.pi * 440 * np.arange(8000) / 16000)
+        self.assertFalse(np.allclose(audio_features.extract_features(silence),
+                                     audio_features.extract_features(with_end_sound)))
 
     def test_classifier_classify_samples(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "model.npz"
-            x = np.random.randn(3, 3136).astype(np.float32)
+            x = np.random.randn(3, audio_features.FEATURE_DIM).astype(np.float32)
             optimizer = neural_network.AdamOptimizer(self.model.dense_layers)
             self.model.train_step(x, np.array([0, 1, 2]), optimizer)
             self.model.save_weights(path)
             classifier = AudioNoiseClassifier(path)
-            fake_audio = np.random.randn(16000).astype(np.float32)
+            fake_audio = np.random.randn(audio_features.WINDOW_SAMPLES).astype(np.float32)
             result = classifier.classify_samples(fake_audio)
 
         self.assertIn("label", result)
@@ -86,13 +93,13 @@ class NeuralNetworkTests(unittest.TestCase):
 
     def test_summary_spec(self):
         summary = self.model.summary()
-        self.assertEqual(summary["input_dimension"], 3136)
+        self.assertEqual(summary["input_dimension"], audio_features.FEATURE_DIM)
         self.assertGreater(summary["total_parameters"], 0)
         self.assertIn("weights_memory_kb", summary)
 
     def test_evaluate_model(self):
         import train_wake_word
-        x = np.random.randn(6, 3136).astype(np.float32)
+        x = np.random.randn(6, audio_features.FEATURE_DIM).astype(np.float32)
         y = np.array([0, 1, 2, 0, 1, 2])
         metrics = train_wake_word.evaluate_model(self.model, x, y)
         self.assertIn("accuracy", metrics)

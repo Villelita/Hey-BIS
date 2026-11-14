@@ -26,7 +26,7 @@ from prepare_audio import prepare_dataset
 from train_wake_word import load_dataset_split, metrics_from_probabilities, train_network
 
 
-def write_wav(path, rate=16000, seconds=1, frequency=440):
+def write_wav(path, rate=16000, seconds=audio_features.WINDOW_SECONDS, frequency=440):
     samples = np.rint(5000 * np.sin(2 * np.pi * frequency * np.arange(round(rate * seconds)) / rate)).astype('<i2')
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), 'wb') as target:
@@ -50,7 +50,7 @@ class WorkflowTests(unittest.TestCase):
 
     def trained_weights(self):
         model = WakeWordNeuralNetwork(hidden_dim1=8, hidden_dim2=4)
-        model.train_step(np.zeros((3, 3136), np.float32), np.arange(3), AdamOptimizer(model.dense_layers))
+        model.train_step(np.zeros((3, audio_features.FEATURE_DIM), np.float32), np.arange(3), AdamOptimizer(model.dense_layers))
         path = self.root / 'model.npz'
         model.save_weights(path)
         return path
@@ -95,8 +95,10 @@ class WorkflowTests(unittest.TestCase):
     def test_windows_cover_tail_and_count_one_event_per_positive_run(self):
         classifier = AudioNoiseClassifier(self.trained_weights())
         with patch.object(classifier, 'classify_samples', return_value={'is_wake_word': True}):
-            windows = classifier.scan_streaming_window(np.zeros(19200, np.float32))
-        self.assertEqual(windows[-1]['time_end_sec'], 1.2)
+            windows = classifier.scan_streaming_window(np.zeros(60000, np.float32))
+        self.assertEqual(windows[0]['time_end_sec'], 3.0)
+        self.assertEqual(windows[-1]['time_end_sec'], 3.75)
+        self.assertGreater(len(windows), 1)
         self.assertEqual(sum(w['activation'] for w in windows), 1)
         with self.assertRaises(ValueError):
             list(audio_features.audio_windows(np.zeros(16000), hop_size=0))
@@ -157,13 +159,42 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(any('contenido' in error for error in report['errors']))
 
     def test_negative_audio_is_segmented_and_positive_never_silently_cropped(self):
-        write_wav(self.root / 'audio/long.wav', seconds=2.25)
+        write_wav(self.root / 'audio/long.wav', seconds=7.25)
         manifest(self.root, [('audio/long.wav', 'other_speech', 'es', 'p01', 'train', 'yes')])
         x, _, _ = load_dataset_split(self.root, 'train')
         self.assertEqual(len(x), 3)
         manifest(self.root, [('audio/long.wav', 'wake_word', 'es', 'p01', 'train', 'yes')])
-        with self.assertRaisesRegex(ValueError, 'hasta 1 segundo'):
+        with self.assertRaisesRegex(ValueError, 'hasta 3 segundos'):
             load_dataset_split(self.root, 'train')
+
+    def test_three_second_positive_is_accepted_without_cropping(self):
+        write_wav(self.root / 'audio/positive.wav', seconds=3)
+        manifest(self.root, [('audio/positive.wav', 'wake_word', 'es', 'p01', 'train', 'yes')])
+        x, y, paths = load_dataset_split(self.root, 'train')
+        self.assertEqual(x.shape, (1, 9536))
+        np.testing.assert_array_equal(y, [2])
+        self.assertTrue(paths[0].endswith('#0:48000'))
+        samples = audio_features.load_wav(self.root / 'audio/positive.wav')
+        np.testing.assert_allclose(x[0], audio_features.extract_features(samples))
+
+    def test_legacy_one_second_model_is_rejected(self):
+        model = WakeWordNeuralNetwork(input_dim=3136, hidden_dim1=8, hidden_dim2=4)
+        model.train_step(np.zeros((3, 3136), np.float32), np.arange(3), AdamOptimizer(model.dense_layers))
+        path = self.root / 'legacy.npz'
+        model.save_weights(path)
+        with np.load(path) as data:
+            arrays = {k: data[k] for k in data.files}
+        metadata = json.loads(str(arrays['metadata'].item()))
+        metadata['window_samples'] = 16000
+        metadata['feature_version'] = 'logmel32-98-zscore-v1'
+        arrays['metadata'] = json.dumps(metadata)
+        np.savez_compressed(path, **arrays)
+        with self.assertRaisesRegex(ValueError, '3 segundos'):
+            AudioNoiseClassifier(path)
+
+    def test_recording_rejects_positive_above_three_seconds(self):
+        with self.assertRaisesRegex(ValueError, 'hasta 3 segundos'):
+            microphone.validate_recording(self.root, 'wake_word', 'es', 'p01', 'train', 3.01)
 
     def make_bilingual_fixture(self):
         rows = []
@@ -216,15 +247,18 @@ class WorkflowTests(unittest.TestCase):
 
     def test_recording_registers_pcm_and_blocks_speaker_leak(self):
         args = argparse.Namespace(consent=True, data_dir=self.root, label='wake_word', language='es',
-                                  speaker='p01', split='train', seconds=1.0, device=None)
+                                  speaker='p01', split='train', seconds=3.0, device=None)
         sd = Mock()
-        sd.rec.return_value = np.zeros((16000, 1), dtype=np.int16)
+        sd.rec.return_value = np.zeros((48000, 1), dtype=np.int16)
         sd.get_status.return_value = False
         with patch('microphone.sounddevice_module', return_value=sd), contextlib.redirect_stdout(io.StringIO()):
             microphone.record(args)
         report = inspect_dataset(self.root, load_config())
         self.assertEqual(report['files'], 1)
         self.assertEqual(report['errors'], [])
+        self.assertAlmostEqual(report['audio_hours'], 3 / 3600)
+        sd.rec.assert_called_once_with(48000, samplerate=16000, channels=1,
+                                       dtype='int16', device=None, blocking=True)
         args.split = 'test'
         with patch('microphone.sounddevice_module') as sd:
             with self.assertRaisesRegex(ValueError, 'otra particion'):
@@ -238,7 +272,7 @@ class WorkflowTests(unittest.TestCase):
         stream = Mock()
         def input_stream(**kwargs):
             def enter():
-                for _ in range(5):
+                for _ in range(13):
                     kwargs['callback'](np.zeros((4000, 1), np.float32), 4000, None, False)
             stream.__enter__ = Mock(side_effect=enter)
             stream.__exit__ = Mock(return_value=False)
@@ -248,7 +282,11 @@ class WorkflowTests(unittest.TestCase):
             microphone.listen(args)
         logged = [json.loads(line) for line in args.log.read_text().splitlines()]
         self.assertEqual(logged[0]['type'], 'session')
-        self.assertGreater(logged[-1]['windows'], 0)
+        self.assertEqual(logged[0]['window_seconds'], 3)
+        self.assertEqual(logged[0]['window_samples'], 48000)
+        windows = [item for item in logged if 'time_end_sec' in item]
+        self.assertEqual([item['time_end_sec'] for item in windows], [3.0, 3.25])
+        self.assertEqual(logged[-1]['windows'], 2)
 
 
 if __name__ == '__main__':

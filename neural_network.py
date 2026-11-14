@@ -175,7 +175,7 @@ class WakeWordNeuralNetwork:
     """Red Neuronal Artificial para la detección de 'Hey BIS' y ruidos ambientales.
 
     Arquitectura por defecto:
-      - Entrada: 3136 características (Espectrograma Log-Mel: 32 bandas x 98 frames)
+      - Entrada: 9536 características (3 segundos: 32 bandas x 298 frames)
       - Capa 1: 64 neuronas + activación ReLU
       - Capa 2: 32 neuronas + activación ReLU
       - Capa de Salida: 3 neuronas (background, other_speech, wake_word) + Softmax
@@ -183,7 +183,7 @@ class WakeWordNeuralNetwork:
 
     def __init__(
         self,
-        input_dim: int = 3136,
+        input_dim: int = audio_features.FEATURE_DIM,
         hidden_dim1: int = 64,
         hidden_dim2: int = 32,
         num_classes: int = 3,
@@ -236,6 +236,9 @@ class WakeWordNeuralNetwork:
         wake_threshold: float = 0.60,
     ) -> dict:
         """Analiza un arreglo de muestras de audio (16 kHz) y clasifica si es ruido o Wake Word."""
+        samples = audio_features.validate_samples(samples)
+        if len(samples) > audio_features.WINDOW_SAMPLES:
+            raise ValueError(f"Se requieren ventanas de hasta {audio_features.WINDOW_SECONDS} segundos.")
         features = audio_features.extract_features(samples)
         probs = self.predict_proba(features)[0]
 
@@ -305,6 +308,10 @@ class WakeWordNeuralNetwork:
         return {
             "model_name": "HeyBIS_WakeWord_MLP",
             "input_dimension": self.input_dim,
+            "sample_rate": audio_features.SAMPLE_RATE,
+            "window_seconds": audio_features.WINDOW_SECONDS,
+            "window_samples": audio_features.WINDOW_SAMPLES,
+            "feature_version": audio_features.FEATURE_VERSION,
             "layers": [
                 {"name": self.dense1.name, "neurons": self.hidden_dim1, "params": self.dense1.weights.size + self.dense1.bias.size},
                 {"name": self.dense2.name, "neurons": self.hidden_dim2, "params": self.dense2.weights.size + self.dense2.bias.size},
@@ -352,10 +359,10 @@ class WakeWordNeuralNetwork:
             if (meta.get("format_version") != 1
                     or meta.get("labels") != LABELS
                     or meta.get("feature_version") != audio_features.FEATURE_VERSION
-                    or meta.get("sample_rate") != 16000
-                    or meta.get("window_samples") != 16000
+                    or meta.get("sample_rate") != audio_features.SAMPLE_RATE
+                    or meta.get("window_samples") != audio_features.WINDOW_SAMPLES
                     or meta.get("architecture") != [self.input_dim, self.hidden_dim1, self.hidden_dim2, self.num_classes]):
-                raise ValueError("Arquitectura o preprocesamiento incompatible en el modelo.")
+                raise ValueError("Arquitectura o preprocesamiento incompatible. Vuelve a entrenar para ventanas de 3 segundos.")
             threshold_predictions(np.array([[1., 0., 0.]]), meta["wake_threshold"])
             if type(meta.get("training_steps")) is not int or meta["training_steps"] < 0:
                 raise ValueError("training_steps invalido.")
@@ -383,8 +390,8 @@ class WakeWordNeuralNetwork:
         dims = meta.get("architecture")
         if (not isinstance(dims, list) or len(dims) != 4
                 or any(type(d) is not int or d <= 0 for d in dims)
-                or dims[0] != 3136 or dims[-1] != 3):
-            raise ValueError("Arquitectura de audio incompatible.")
+                or dims[0] != audio_features.FEATURE_DIM or dims[-1] != 3):
+            raise ValueError("Arquitectura de audio incompatible. Vuelve a entrenar para ventanas de 3 segundos.")
         model = cls(*dims, trainable=False)
         model.load_weights(filepath)
         if not model.training_steps:
