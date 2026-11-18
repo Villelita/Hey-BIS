@@ -34,8 +34,47 @@ import numpy as np
 import scipy.io.wavfile as wavfile
 import scipy.signal as scipy_signal
 
-from audio_classifier import AudioNoiseClassifier
+from audio_classifier import AudioNoiseClassifier as BaseAudioNoiseClassifier
 import audio_features
+
+
+class AudioNoiseClassifier(BaseAudioNoiseClassifier):
+    """Clasificador adaptado al servicio web (permite modo demo sin .npz previo)."""
+
+    def __init__(
+        self,
+        weights_path: str | Path | None = None,
+        wake_threshold: float | None = None,
+        *,
+        allow_untrained: bool | None = None,
+    ):
+        if allow_untrained is None:
+            allow_untrained = weights_path is None
+        super().__init__(
+            weights_path=weights_path,
+            wake_threshold=wake_threshold,
+            allow_untrained=allow_untrained,
+        )
+
+    def classify_clip(self, samples: np.ndarray) -> dict:
+        """Clasifica un clip de cualquier duración (usa ventana deslizante si supera WINDOW_SAMPLES)."""
+        samples = audio_features.validate_samples(samples)
+        if len(samples) <= audio_features.WINDOW_SAMPLES:
+            return self.classify_samples(samples)
+        windows = self.scan_streaming_window(
+            samples,
+            window_size=audio_features.WINDOW_SAMPLES,
+            hop_size=min(4_000, audio_features.WINDOW_SAMPLES),
+        )
+        best = max(windows, key=lambda w: w["wake_word_probability"])
+        return {
+            "label": best["label"],
+            "is_wake_word": any(w["is_wake_word"] for w in windows),
+            "confidence": best["confidence"],
+            "wake_word_probability": best["wake_word_probability"],
+            "probabilities": best["probabilities"],
+            "windows_evaluated": len(windows),
+        }
 
 
 def get_lan_ips() -> List[str]:
@@ -260,7 +299,66 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             self.handle_classify()
             return
 
+        if path == "/api/record-server-mic":
+            self.handle_record_server_mic()
+            return
+
         self.send_json_response({"error": f"Endpoint desconocido: {path}"}, status=404)
+
+    def handle_record_server_mic(self) -> None:
+        """Graba desde el micrófono físico del servidor cuando el cliente entra por HTTP sin WebRTC."""
+        start_time = time.perf_counter()
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            duration_sec = 1.5
+            if content_length > 0:
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                duration_sec = float(body.get("duration", 1.5))
+            duration_sec = max(0.5, min(duration_sec, 5.0))
+
+            import sounddevice as sd
+            n_frames = int(round(duration_sec * 16000))
+            rec = sd.rec(n_frames, samplerate=16000, channels=1, dtype="float32", blocking=True)
+            samples = rec[:, 0].astype(np.float32)
+
+            infer_start = time.perf_counter()
+            if hasattr(self.classifier, "classify_clip"):
+                inference_result = self.classifier.classify_clip(samples)
+            else:
+                inference_result = self.classifier.classify_samples(samples)
+            inference_ms = round((time.perf_counter() - infer_start) * 1000.0, 2)
+
+            # Generar WAV en base64 para reproductor del navegador
+            int_signal = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+            buf = io.BytesIO()
+            wavfile.write(buf, 16000, int_signal)
+            wav_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+            self.send_json_response({
+                "success": True,
+                "source": "server_microphone",
+                "label": inference_result["label"],
+                "is_wake_word": inference_result["is_wake_word"],
+                "confidence": round(float(inference_result["confidence"]), 4),
+                "wake_word_probability": round(float(inference_result["wake_word_probability"]), 4),
+                "probabilities": {
+                    k: round(float(v), 4) for k, v in inference_result["probabilities"].items()
+                },
+                "audio_info": {
+                    "samples_received": int(len(samples)),
+                    "duration_seconds": round(len(samples) / 16000.0, 3),
+                    "target_rate_hz": 16000,
+                },
+                "audio_wav_base64": f"data:audio/wav;base64,{wav_b64}",
+                "inference_time_ms": inference_ms,
+                "total_elapsed_ms": round((time.perf_counter() - start_time) * 1000.0, 2),
+                "wake_threshold": self.classifier.wake_threshold,
+            })
+        except Exception as exc:
+            self.send_json_response({
+                "success": False,
+                "error": f"No se pudo grabar desde el micrófono del servidor: {exc}",
+            }, status=400)
 
     def handle_set_threshold(self) -> None:
         """Actualiza el umbral dinámico de activación para 'Hey BIS'."""
@@ -328,8 +426,11 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 # Caso 3: Audio WAV binario directo o PCM
                 samples = decode_audio_bytes_to_16k_mono(raw_body)
 
-            # Clasificación mediante la red neuronal
-            inference_result = self.classifier.classify_samples(samples)
+            # Clasificación mediante la red neuronal (soporta tanto ventanas de 1s como clips largos)
+            if hasattr(self.classifier, "classify_clip"):
+                inference_result = self.classifier.classify_clip(samples)
+            else:
+                inference_result = self.classifier.classify_samples(samples)
             inference_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
 
             duration_sec = round(len(samples) / 16000.0, 3)

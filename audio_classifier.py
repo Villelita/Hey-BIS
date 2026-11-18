@@ -30,12 +30,21 @@ class ActivationGate:
 
 
 class AudioNoiseClassifier:
-    def __init__(self, weights_path: str | Path | None = None, wake_threshold: float | None = None):
+    def __init__(
+        self,
+        weights_path: str | Path | None = None,
+        wake_threshold: float | None = None,
+        *,
+        allow_untrained: bool = False,
+    ):
         if weights_path is None:
-            raise ValueError("Indica --weights con un modelo entrenado.")
-        if not Path(weights_path).is_file():
-            raise FileNotFoundError(f"No existe el modelo: {weights_path}")
-        self.model = WakeWordNeuralNetwork.from_weights(weights_path)
+            if not allow_untrained:
+                raise ValueError("Indica --weights con un modelo entrenado.")
+            self.model = WakeWordNeuralNetwork(trainable=False)
+        else:
+            if not Path(weights_path).is_file():
+                raise FileNotFoundError(f"No existe el modelo: {weights_path}")
+            self.model = WakeWordNeuralNetwork.from_weights(weights_path)
         self.wake_threshold = self.model.wake_threshold if wake_threshold is None else wake_threshold
         if not np.isfinite(self.wake_threshold) or not 0 < self.wake_threshold <= 1:
             raise ValueError("El umbral debe estar en (0, 1].")
