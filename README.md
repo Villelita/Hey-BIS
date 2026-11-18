@@ -98,6 +98,34 @@ sudo systemctl start bis-kiosk.service
 
 ---
 
+## Recording training examples
+
+Run `python service/server.py --host localhost --port 8080` and open the dashboard.
+The recording section captures exactly three seconds of mono, 16 kHz, 16-bit WAV audio.
+Select the category, language, speaker identifier and dataset split, then record,
+listen to the preview and choose **Guardar en dataset**.
+
+Recordings are stored in `data/audio/recorded/` alongside an entry in `data/manifest.csv`.
+To save into a separate dataset repository, start the dashboard with
+`python service/server.py --data-dir "C:/path/to/Dataset/Hey-BIS"`.
+It writes WAV files under `audio/recorded/` and updates `manifest.csv` in that directory,
+using relative audio paths. For a persistent local setting, create the Git-ignored
+`service/dataset.local.json` with `{"data_dir": "C:/path/to/Dataset/Hey-BIS"}`.
+An explicit `--data-dir` overrides this local setting. Use the same dataset path
+with `train_wake_word.py --data-dir` when training.
+Use one split per speaker to keep training and evaluation independent. Background
+recordings use language `none`. Local recordings are ignored by Git.
+
+The existing training command reads these saved examples directly:
+
+```bash
+python train_wake_word.py --data-dir data --save-path output/wake_word_model.npz
+```
+
+Saving a recording adds it to the dataset. Run training after collecting the required
+classes and languages for training and validation. Load the resulting weights into
+the classifier to use the newly trained model.
+
 ## 🔌 Connecting to Your Voice Pipeline (Python Backend)
 
 Bis includes an API bridge that connects to your Python voice assistant (e.g., Vosk / Whisper STT, Porcupine Wakeword, Piper / Coqui TTS, or Ollama / OpenAI / Gemini).

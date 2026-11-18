@@ -188,7 +188,9 @@ def run_microphone_listener(model_path=None, device_index=None):
                 thread_safe_broadcast(set_state("listening", "Te escucho. Di tu pregunta..."))
                 idle_prompt = IDLE_PROMPT
                 try:
-                    command = (text[wake.end():] if wake else text).strip(" ,.!?¿¡")
+                    # A button request starts a new turn. The standby clip may
+                    # contain speech captured before the user clicked.
+                    command = "" if manual else text[wake.end():].strip(" ,.!?¿¡")
                     if not command:
                         command = capture_command(r, source, transcribe)
                     if not command:

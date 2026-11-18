@@ -1,6 +1,7 @@
 __pycache__/
 .venv/
 tmp/
+service/dataset.local.json
 
 # Datos y grabaciones locales
 data/
