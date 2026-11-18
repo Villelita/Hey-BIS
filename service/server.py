@@ -513,6 +513,21 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             }, status=400)
 
 
+def resolve_dataset_directory(data_dir: str | Path | None = None) -> Path:
+    """Usa la ruta explícita, configuración local o repositorio Dataset cercano."""
+    local_config = SERVICE_DIR / "dataset.local.json"
+    if data_dir is None and local_config.is_file():
+        data_dir = json.loads(local_config.read_text(encoding="utf-8"))["data_dir"]
+    if data_dir is not None:
+        return Path(data_dir).expanduser().resolve()
+    for parent in PROJECT_ROOT.parents:
+        for name in ("Dataset", "DataSet"):
+            candidate = parent / name / "Hey-BIS"
+            if (candidate / "manifest.csv").is_file():
+                return candidate.resolve()
+    return PROJECT_ROOT / "data"
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
@@ -522,10 +537,7 @@ def run_server(
 ) -> None:
     """Inicia el servidor HTTP multi-hilo en la dirección y puerto especificados."""
     global DATA_DIR
-    local_config = SERVICE_DIR / "dataset.local.json"
-    if data_dir is None and local_config.is_file():
-        data_dir = json.loads(local_config.read_text(encoding="utf-8"))["data_dir"]
-    DATA_DIR = Path(data_dir).expanduser().resolve() if data_dir is not None else PROJECT_ROOT / "data"
+    DATA_DIR = resolve_dataset_directory(data_dir)
     # Verificar si existe archivo de pesos por defecto en el proyecto si no fue especificado
     actual_weights: Path | None = None
     if weights_path:
@@ -580,6 +592,7 @@ def run_server(
     )
     print(f"  * Estado Pesos:    {weights_display}")
     print(f"  * Umbral Activo:   {wake_threshold:.2f}")
+    print(f"  * Dataset:         {DATA_DIR}")
     print(f"  * Acceso Local:    http://localhost:{port}")
     for ip in lan_ips:
         print(f"  * Red Local (LAN): http://{ip}:{port}")

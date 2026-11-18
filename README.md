@@ -105,8 +105,14 @@ The recording section captures exactly three seconds of mono, 16 kHz, 16-bit WAV
 Select the category, language, speaker identifier and dataset split, then record,
 listen to the preview and choose **Guardar en dataset**.
 
-Recordings are stored in `data/audio/recorded/` alongside an entry in `data/manifest.csv`.
-To save into a separate dataset repository, start the dashboard with
+The dashboard automatically finds a nearby `Dataset/Hey-BIS` or `DataSet/Hey-BIS`
+directory containing `manifest.csv`. Keep the Hey BIS and Dataset repositories
+in the same parent folder. Nested project worktrees also find this dataset.
+New recordings go into its `audio/recorded/` directory and are registered in its
+existing `manifest.csv`. This works immediately after pulling the code.
+
+If no nearby dataset exists, recordings use the project's `data/` directory.
+To select another location explicitly, start the dashboard with
 `python service/server.py --data-dir "C:/path/to/Dataset/Hey-BIS"`.
 It writes WAV files under `audio/recorded/` and updates `manifest.csv` in that directory,
 using relative audio paths. For a persistent local setting, create the Git-ignored
