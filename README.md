@@ -111,6 +111,24 @@ in the same parent folder. Nested project worktrees also find this dataset.
 New recordings go into its `audio/recorded/` directory and are registered in its
 existing `manifest.csv`. This works immediately after pulling the code.
 
+Arrange your local clones like this:
+
+```text
+Programming/
+├── Hey-BIS/                    # Application repository
+│   └── service/server.py
+└── Dataset/                    # Clone of RD224/DataSet (DataSet also works)
+    └── Hey-BIS/
+        ├── manifest.csv
+        └── audio/
+            └── recorded/       # New recordings are saved here
+```
+
+The parent folder can have any name and can belong to any user. The dataset folder
+must be named `Dataset` or `DataSet` and contain `Hey-BIS/manifest.csv` for automatic
+discovery. With this layout, update the application from `test` and start the
+dashboard normally. The server prints the selected dataset directory at startup.
+
 If no nearby dataset exists, recordings use the project's `data/` directory.
 To select another location explicitly, start the dashboard with
 `python service/server.py --data-dir "C:/path/to/Dataset/Hey-BIS"`.
@@ -125,8 +143,12 @@ recordings use language `none`. Local recordings are ignored by Git.
 The existing training command reads these saved examples directly:
 
 ```bash
-python train_wake_word.py --data-dir data --save-path output/wake_word_model.npz
+python train_wake_word.py --data-dir "../Dataset/Hey-BIS" --save-path output/wake_word_model.npz
 ```
+
+Run this command from the application repository in the layout above. If your
+dataset is elsewhere, pass its directory to `--data-dir`. For the local `data/`
+fallback, use `--data-dir data`.
 
 Saving a recording adds it to the dataset. Run training after collecting the required
 classes and languages for training and validation. Load the resulting weights into
