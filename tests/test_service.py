@@ -80,7 +80,7 @@ class TestService(unittest.TestCase):
 
     def test_classifier_long_clip_inference(self):
         classifier = AudioNoiseClassifier(weights_path=None, wake_threshold=0.60)
-        long_clip = np.zeros(32000, dtype=np.float32)  # 2.0 segundos a 16 kHz
+        long_clip = np.zeros(64000, dtype=np.float32)  # 4.0 segundos a 16 kHz (> ventana de 3s)
         result = classifier.classify_clip(long_clip)
         self.assertIn("label", result)
         self.assertIn("probabilities", result)

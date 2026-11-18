@@ -514,7 +514,12 @@ def run_server(
     print("=" * 64)
     print("    HEY BIS - SERVICIO WEB DE DETECCIÓN DE WAKE WORD & AUDIO    ")
     print("=" * 64)
-    print(f"  * Modelo:          3136 -> 64 (ReLU) -> 32 (ReLU) -> 3 (Softmax)")
+    print(
+        f"  * Modelo:          {classifier.model.input_dim} -> "
+        f"{classifier.model.hidden_dim1} (ReLU) -> "
+        f"{classifier.model.hidden_dim2} (ReLU) -> "
+        f"{classifier.model.num_classes} (Softmax)"
+    )
     print(f"  * Estado Pesos:    {weights_display}")
     print(f"  * Umbral Activo:   {wake_threshold:.2f}")
     print(f"  * Acceso Local:    http://localhost:{port}")
