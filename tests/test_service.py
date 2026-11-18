@@ -78,6 +78,14 @@ class TestService(unittest.TestCase):
         self.assertIn("other_speech", result["probabilities"])
         self.assertIn("background", result["probabilities"])
 
+    def test_classifier_long_clip_inference(self):
+        classifier = AudioNoiseClassifier(weights_path=None, wake_threshold=0.60)
+        long_clip = np.zeros(32000, dtype=np.float32)  # 2.0 segundos a 16 kHz
+        result = classifier.classify_clip(long_clip)
+        self.assertIn("label", result)
+        self.assertIn("probabilities", result)
+        self.assertGreater(result.get("windows_evaluated", 0), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
