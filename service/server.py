@@ -20,6 +20,8 @@ import subprocess
 import sys
 import threading
 import time
+import wave
+from uuid import uuid4
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Tuple
@@ -39,6 +41,12 @@ import scipy.signal as scipy_signal
 
 from audio_classifier import AudioNoiseClassifier as BaseAudioNoiseClassifier
 import audio_features
+from microphone import validate_recording
+from main import FIELDS, LABELS, SPLITS, initialize
+from import_esc50 import write_csv
+
+RECORDING_LOCK = threading.Lock()
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 class AudioNoiseClassifier(BaseAudioNoiseClassifier):
@@ -244,6 +252,7 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 "wake_threshold": self.classifier.wake_threshold,
                 "weights_path": self.weights_path_str or "Inicializado (sin archivo externo)",
                 "weights_loaded": self.weights_path_str is not None,
+                "dataset_directory": str(DATA_DIR),
                 "network_architecture": {
                     "input_features": in_dim,
                     "dense1": f"{in_dim} -> {l0_neurons} (ReLU)",
@@ -326,6 +335,10 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path == "/api/recordings":
+            self.handle_save_recording()
+            return
+
         if path == "/api/threshold":
             self.handle_set_threshold()
             return
@@ -335,6 +348,44 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json_response({"error": f"Endpoint desconocido: {path}"}, status=404)
+
+    def handle_save_recording(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 200_000:
+                raise ValueError("La grabación excede el tamaño permitido.")
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise ValueError("Envía los datos de la grabación como un objeto JSON.")
+            label, language = body.get("label"), body.get("language")
+            speaker, split = body.get("speaker", ""), body.get("split")
+            if label not in LABELS or split not in SPLITS or body.get("consent") is not True:
+                raise ValueError("Revisa la categoría, partición y permiso de grabación.")
+            raw = base64.b64decode(body.get("audio", ""), validate=True)
+            with wave.open(io.BytesIO(raw), "rb") as audio:
+                if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), audio.getcomptype(), audio.getnframes()) != (1, 2, 16000, "NONE", 48000):
+                    raise ValueError("Se requiere un WAV de 3 segundos, mono, 16 kHz y 16 bits.")
+                if len(audio.readframes(48000)) != 96000:
+                    raise ValueError("El audio está incompleto.")
+            with RECORDING_LOCK:
+                rows = validate_recording(DATA_DIR, label, language, speaker, split, 3)
+                initialize(DATA_DIR)
+                relative = Path("audio/recorded") / f"{speaker}_{language}_{label}_{uuid4().hex}.wav"
+                target = DATA_DIR / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    with target.open("xb") as output:
+                        output.write(raw)
+                    rows.append(dict(zip(FIELDS, (relative.as_posix(), label, language, speaker, split, "yes"))))
+                    write_csv(DATA_DIR / "manifest.csv", FIELDS, rows)
+                except Exception:
+                    target.unlink(missing_ok=True)
+                    raise
+            self.send_json_response({"success": True, "path": str(target), "count": len(rows)})
+        except (ValueError, TypeError, wave.Error, EOFError) as error:
+            self.send_json_response({"error": str(error)}, status=400)
+        except OSError:
+            self.send_json_response({"error": "No se pudo guardar. Intenta de nuevo."}, status=500)
 
     def handle_set_threshold(self) -> None:
         """Actualiza el umbral dinámico de activación para 'Hey BIS'."""
@@ -468,14 +519,32 @@ def ensure_ssl_cert(lan_ips: List[str]) -> Tuple[Path, Path] | None:
         return None
 
 
+def resolve_dataset_directory(data_dir: str | Path | None = None) -> Path:
+    """Usa la ruta explícita, configuración local o repositorio Dataset cercano."""
+    local_config = SERVICE_DIR / "dataset.local.json"
+    if data_dir is None and local_config.is_file():
+        data_dir = json.loads(local_config.read_text(encoding="utf-8"))["data_dir"]
+    if data_dir is not None:
+        return Path(data_dir).expanduser().resolve()
+    for parent in PROJECT_ROOT.parents:
+        for name in ("dataset", "Dataset", "DataSet"):
+            candidate = parent / name / "Hey-BIS"
+            if (candidate / "manifest.csv").is_file():
+                return candidate.resolve()
+    return PROJECT_ROOT / "data"
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     https_port: int = 8443,
     weights_path: str | Path | None = None,
     wake_threshold: float = 0.60,
+    data_dir: str | Path | None = None,
 ) -> None:
     """Inicia el servidor HTTP y HTTPS multi-hilo en la dirección y puertos especificados."""
+    global DATA_DIR
+    DATA_DIR = resolve_dataset_directory(data_dir)
     # Verificar si existe archivo de pesos por defecto en el proyecto si no fue especificado
     actual_weights: Path | None = None
     if weights_path:
@@ -545,6 +614,7 @@ def run_server(
     )
     print(f"  * Estado Pesos:    {weights_display}")
     print(f"  * Umbral Activo:   {wake_threshold:.2f}")
+    print(f"  * Dataset:         {DATA_DIR}")
     print(f"  * Acceso Local:    http://localhost:{port}")
     for ip in lan_ips:
         print(f"  * Red Local HTTP:  http://{ip}:{port}")
@@ -573,6 +643,7 @@ def main():
     parser.add_argument("--port", type=int, default=8080, help="Puerto HTTP (por defecto 8080)")
     parser.add_argument("--weights", type=Path, default=None, help="Ruta al archivo .npz de pesos")
     parser.add_argument("--threshold", type=float, default=0.60, help="Umbral de detección de Wake Word")
+    parser.add_argument("--data-dir", type=Path, help="Carpeta del dataset con manifest.csv y audio/")
     args = parser.parse_args()
 
     run_server(
@@ -580,6 +651,7 @@ def main():
         port=args.port,
         weights_path=args.weights,
         wake_threshold=args.threshold,
+        data_dir=args.data_dir,
     )
 
 

@@ -264,12 +264,29 @@
       </section>
     </main>
 
+    <section class="card" style="padding:24px; margin-top:24px" aria-labelledby="dataset-heading">
+      <h2 id="dataset-heading">Grabar audios para entrenamiento</h2>
+      <p>Graba 3 segundos, escucha el resultado y guarda los ejemplos que quieras usar en el dataset.</p>
+      <form id="dataset-form">
+        <label>Categoría <select name="label" class="select-input"><option value="wake_word">Hey BIS</option><option value="other_speech">Otra conversación</option><option value="background">Ruido de fondo</option></select></label>
+        <label>Idioma <select name="language" class="select-input"><option value="es">Español</option><option value="en">Inglés</option><option value="none">Sin voz (ruido)</option></select></label>
+        <label>Hablante <input name="speaker" required pattern="[A-Za-z0-9_-]{1,64}" placeholder="p01" maxlength="64" class="select-input"></label>
+        <label>Uso <select name="split" class="select-input"><option value="train">Entrenamiento</option><option value="validation">Validación</option><option value="test">Prueba final</option></select></label>
+        <p>Usa el mismo identificador para cada persona y conserva su selección de uso. Para ruido, elige «Sin voz».</p>
+        <p><label><input name="consent" type="checkbox" required> Tengo permiso de las personas grabadas para usar este audio en el entrenamiento.</label></p>
+        <button type="button" id="dataset-record" class="btn-secondary">Grabar 3 segundos</button>
+        <audio id="dataset-preview" controls hidden></audio>
+        <button type="submit" id="dataset-save" class="btn-primary" disabled>Guardar en dataset</button>
+        <p id="dataset-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
     <footer class="footer">
       Hey BIS &bull; Sistema de Reconocimiento de Voz &bull; Optimizado para Raspberry Pi y Red Local
     </footer>
   </div>
 
   <script src="app.js"></script>
+  <script src="dataset.js"></script>
 </body>
 </html>
 
