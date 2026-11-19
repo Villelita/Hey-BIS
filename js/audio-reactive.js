@@ -576,14 +576,9 @@ class AudioReactive {
       this.manualTranscript = currentText;
     }
 
-    // Show live real-time text of what the microphone is hearing in the minimalist footer
-    if (!this.isAwake) {
-      if (this.ui) {
-        this.ui.setTranscript(`"${currentText}"`, 'user', false);
-      }
-      if (this.hudSubtext) {
-        this.hudSubtext.innerHTML = `<span>🟢 Escuchando en tiempo real</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis" para activar</span>`;
-      }
+    // Show live real-time text of what the microphone is hearing directly in the single subtle footer line
+    if (!this.isAwake && this.hudSubtext) {
+      this.hudSubtext.innerHTML = `<span>🟢 ${this.escapeHtml(currentText)}</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>`;
     }
 
     // CASE 1: Asleep, waiting for wake phrase
@@ -603,8 +598,8 @@ class AudioReactive {
 
       if (cleaned.length > 0) {
         this.accumulatedQuery = cleaned;
-        if (this.ui) {
-          this.ui.setTranscript(`"${cleaned}"`, 'user', false);
+        if (this.hudSubtext) {
+          this.hudSubtext.innerHTML = `<span>🔵 ${this.escapeHtml(cleaned)}</span>`;
         }
       }
 
@@ -682,7 +677,7 @@ class AudioReactive {
       this.ui.setState('speaking');
       this.ui.setTranscript(reply, 'bis', true);
       this.ui.speakAudio(reply);
-      this.ui.updateSubtext('Respuesta de voz activa');
+      this.ui.updateSubtext(`✨ ${this.escapeHtml(reply)}`);
     }
 
     // 4. Return to standby when speech completes and keep listening for "Hey Bis"

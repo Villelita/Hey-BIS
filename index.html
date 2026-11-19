@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -12,6 +13,7 @@
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body data-state="idle">
 
   <!-- Ambient Cinematic Background Effects -->
@@ -63,14 +65,16 @@
           <span class="label">TIME:</span>
           <span class="value" id="clock-value">00:00:00</span>
         </div>
-        <div class="kiosk-badge" id="kiosk-badge" style="cursor: pointer;" title="Haz clic para activar/desactivar micrófono">MIC EN ESPERA (CLICK)</div>
+        <div class="kiosk-badge" id="kiosk-badge" style="cursor: pointer;"
+          title="Haz clic para activar/desactivar micrófono">MIC EN ESPERA (CLICK)</div>
       </div>
     </header>
 
     <!-- Prominent Microphone Permission Banner (Disappears once active) -->
     <div class="mic-activation-banner" id="mic-prompt-banner">
       <div class="mic-banner-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
           <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
           <line x1="12" y1="19" x2="12" y2="23"></line>
@@ -85,16 +89,13 @@
     </div>
 
     <!-- ====================================================================
-         BOTTOM FOOTER: Pure Floating Real-Time Heard Text (No Box / Card)
+         BOTTOM FOOTER: Single Subtle Live-Heard Line (No Big Text / No Box)
          ==================================================================== -->
     <footer class="bottom-dock kiosk-footer-minimal">
-      <div class="transcription-text kiosk-live-text" id="transcription-text">
-        Escuchando en vivo...<span class="cursor"></span>
-      </div>
       <div class="hud-subtext kiosk-live-subtext" id="hud-subtext">
-        <span>🟢 Oído en tiempo real</span>
+        <span>🟢 Escuchando en tiempo real</span>
         <span class="dot"></span>
-        <span>Di "Hey Bis" o "Hola Bis"</span>
+        <span>Di "Hey Bis" o "Hola Bis" para activar</span>
       </div>
     </footer>
 
@@ -104,9 +105,12 @@
        DEVELOPER & DEMO CONTROLS (Floating Drawer / Collapsible)
        ==================================================================== -->
   <button class="dev-controls-toggle-btn" id="dev-toggle-btn" title="Toggle Controls & State Simulator (D)">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="3"></circle>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+      </path>
     </svg>
   </button>
 
@@ -131,8 +135,11 @@
     <div class="dev-group">
       <span class="dev-group-label">Color Palette</span>
       <div class="dev-action-row">
-        <button class="dev-action-btn active" id="btn-palette-green" style="background: rgba(0, 255, 136, 0.2); border-color: var(--neon-green); color: #fff;">Cyber Green</button>
-        <button class="dev-action-btn" id="btn-palette-cyber" style="background: rgba(255, 0, 127, 0.1); border-color: rgba(255, 0, 127, 0.3); color: #ff80bf;">Neon Pink</button>
+        <button class="dev-action-btn active" id="btn-palette-green"
+          style="background: rgba(0, 255, 136, 0.2); border-color: var(--neon-green); color: #fff;">Cyber Green</button>
+        <button class="dev-action-btn" id="btn-palette-cyber"
+          style="background: rgba(255, 0, 127, 0.1); border-color: rgba(255, 0, 127, 0.3); color: #ff80bf;">Neon
+          Pink</button>
       </div>
     </div>
 
@@ -154,11 +161,11 @@
   </div>
 
   <!-- Core JavaScript Modules -->
-  <script src="js/neural-core.js?v=6"></script>
-  <script src="js/assistant-ui.js?v=6"></script>
-  <script src="js/audio-reactive.js?v=6"></script>
-  <script src="js/api-bridge.js?v=6"></script>
-  <script src="js/main.js?v=6"></script>
+  <script src="js/neural-core.js?v=7"></script>
+  <script src="js/assistant-ui.js?v=7"></script>
+  <script src="js/audio-reactive.js?v=7"></script>
+  <script src="js/api-bridge.js?v=7"></script>
+  <script src="js/main.js?v=7"></script>
 </body>
-</html>
 
+</html>
