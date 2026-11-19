@@ -48,8 +48,14 @@ MAIN_LOOP = None
 MIC_READY = threading.Event()
 MANUAL_LISTEN = threading.Event()
 VOICE_STATE = {"action": "state", "value": "idle", "subtext": "Conectando micrófono..."}
-WAKE_PATTERN = re.compile(r"\b(?:(?:hey|ey|oye|hola)\s*(?:bis|vis|biz|bees)|bis)\b", re.IGNORECASE)
-WAKE_ONLY_PATTERN = re.compile(r"(?:hey|ey|oye|hola|bis|vis|biz|bees)(?:\s+(?:bis|vis|biz|bees))?", re.IGNORECASE)
+WAKE_PATTERN = re.compile(
+    r"\b(?:(?:hey|ey|oye|hola|hi|hello|ok|okay)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|bits|piece|peace|miss|liz|luis|gris)|bis|hevis|elvis|holabis|oyebis)\b",
+    re.IGNORECASE,
+)
+WAKE_ONLY_PATTERN = re.compile(
+    r"(?:hey|ey|oye|hola|hi|hello|ok|okay|bis|vis|biz|bees|beast|beasts|best|beats|bits|piece|peace|miss|liz|luis|gris|hevis|elvis|holabis|oyebis)(?:\s+(?:bis|vis|biz|bees|beast|beasts|best|beats|bits|piece|peace|miss|liz|luis|gris))?",
+    re.IGNORECASE,
+)
 COMMAND_START_TIMEOUT = 6
 PHRASE_TIME_LIMIT = 3
 IDLE_PROMPT = "Atento a 'Hey Bis'"

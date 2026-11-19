@@ -67,10 +67,53 @@ class AudioNoiseClassifier(BaseAudioNoiseClassifier):
             allow_untrained=allow_untrained,
         )
 
+    def _vad_center_clip(self, samples: np.ndarray) -> np.ndarray | None:
+        """Extrae el pulso activo de voz (VAD) y lo centra en la ventana de 3s (48,000 muestras)."""
+        peak = float(np.max(np.abs(samples)))
+        if peak < 0.015:
+            return None
+        norm = (samples / peak).astype(np.float32)
+        win = 640
+        energy = np.convolve(norm ** 2, np.ones(win, dtype=np.float32) / win, mode="same")
+        noise_e = float(np.percentile(energy, 20))
+        thresh = max(noise_e * 5.0, float(np.max(energy)) * 0.05, 0.002)
+        idx = np.flatnonzero(energy > thresh)
+        if len(idx) < 800:
+            return None
+        peak_pos = int(np.argmax(energy))
+        valid = idx[(idx >= peak_pos - 16000) & (idx <= peak_pos + 16000)]
+        if len(valid) == 0:
+            valid = idx
+        start = max(0, int(valid[0]) - 1600)
+        end = min(len(norm), int(valid[-1]) + 2800)
+        burst = norm[start:end][:42000].copy()
+        b_peak = float(np.max(np.abs(burst)))
+        if b_peak > 1e-4:
+            burst = burst / b_peak * 0.60
+        fade = min(240, len(burst) // 4)
+        if fade > 0:
+            burst[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+            burst[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+        rng = np.random.default_rng(0)
+        canvas = rng.normal(0, 0.002, audio_features.WINDOW_SAMPLES).astype(np.float32)
+        offset = (audio_features.WINDOW_SAMPLES - len(burst)) // 2
+        canvas[offset:offset + len(burst)] += burst
+        return np.clip(canvas, -0.98, 0.98)
+
     def classify_clip(self, samples: np.ndarray) -> dict:
-        """Clasifica un clip de cualquier duración (usa ventana deslizante si supera WINDOW_SAMPLES)."""
+        """Clasifica un clip de cualquier duración con centrado VAD para micrófonos reales."""
         samples = audio_features.validate_samples(samples)
         if len(samples) <= audio_features.WINDOW_SAMPLES:
+            centered = self._vad_center_clip(samples)
+            if centered is not None:
+                res_centered = self.classify_samples(centered)
+                res_raw = self.classify_samples(samples)
+                # Preferir la ventana centrada por VAD cuando detecta voz
+                best = res_centered if res_centered["wake_word_probability"] >= res_raw["wake_word_probability"] else res_raw
+                return {
+                    **best,
+                    "windows_evaluated": 2,
+                }
             return self.classify_samples(samples)
         windows = self.scan_streaming_window(
             samples,
@@ -211,10 +254,12 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
         sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {args[0]} - {args[1]} {args[2]}\n")
 
     def send_cors_headers(self) -> None:
-        """Añade cabeceras CORS para permitir consumo desde cualquier dispositivo en la red."""
+        """Añade cabeceras CORS y desactiva caché para que los cambios en JS/HTML se reflejen al instante."""
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
 
     def do_OPTIONS(self) -> None:
         """Maneja preflight requests de navegadores."""

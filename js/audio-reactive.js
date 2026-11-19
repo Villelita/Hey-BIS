@@ -32,6 +32,7 @@ class AudioReactive {
     this.isClassifying = false;
     this.isManualCapturing = false;
     this.manualChunks = [];
+    this.manualTranscript = '';
     this.lastAutoClassifyTime = 0;
     this.lastWakeCooldownUntil = 0;
 
@@ -321,26 +322,11 @@ class AudioReactive {
       if (data && data.success && (data.is_wake_word || data.label === 'wake_word')) {
         const pct = (data.wake_word_probability * 100).toFixed(1);
         this.lastWakeCooldownUntil = performance.now() + 3500;
-        this.playWakeChime();
-        if (this.ui) {
-          this.ui.setState('listening');
-          this.ui.setTranscript('"Hey Bis" (Red Neuronal IA)', 'user', true);
-          this.ui.updateSubtext(
-            `✨ Wake Word detectada por la IA (${pct}% confianza • ${data.inference_time_ms} ms)`
-          );
-          setTimeout(() => {
-            if (!this.accumulatedQuery) {
-              this.ui.setState('speaking');
-              this.ui.setTranscript(
-                `¡Hola! Detecté "Hey Bis" con ${pct}% de confianza en ${data.inference_time_ms} ms. ¿En qué te ayudo?`,
-                'bis',
-                true
-              );
-              this.ui.speakAudio('Hola, te escucho. ¿En qué te ayudo?');
-              setTimeout(() => this.returnToSleep(), 4000);
-            }
-          }, 1600);
-        }
+        this.triggerWake('Hey Bis', {
+          source: 'neural_network',
+          confidencePct: pct,
+          latencyMs: data.inference_time_ms,
+        });
       }
     } catch (e) {
       // Backend busy or unreachable
@@ -360,12 +346,13 @@ class AudioReactive {
 
     this.isManualCapturing = true;
     this.manualChunks = [];
+    this.manualTranscript = '';
     const btn = document.getElementById('btn-manual-mic');
     if (btn) btn.textContent = `🔴 Grabando (${durationSec.toFixed(0)}s)...`;
 
     if (this.ui) {
       this.ui.setState('listening');
-      this.ui.setTranscript('Escuchando desde tu micrófono... Di "Hey Bis"', 'user', false);
+      this.ui.setTranscript('Escuchando desde tu micrófono... Di "Hey Bis" o "Hola Bis"', 'user', false);
       this.ui.updateSubtext(`🎙️ Grabando ${durationSec.toFixed(1)}s en tu dispositivo y enviando a la IA...`);
     }
 
@@ -404,17 +391,25 @@ class AudioReactive {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
 
-      const pWake = (data.probabilities.wake_word * 100).toFixed(1);
+      const wakePatterns = this.getWakePatterns();
+      const matchedPhonetic = this.manualTranscript && wakePatterns.some(p => p.test(this.manualTranscript));
+      const isWakeDetected = Boolean(data.is_wake_word || data.label === 'wake_word' || matchedPhonetic);
+
+      const effectiveWakeProb = isWakeDetected
+        ? Math.max(data.wake_word_probability, matchedPhonetic ? 0.95 : 0.0)
+        : data.wake_word_probability;
+      const pWake = (effectiveWakeProb * 100).toFixed(1);
       const pSpeech = (data.probabilities.other_speech * 100).toFixed(1);
       const pBg = (data.probabilities.background * 100).toFixed(1);
 
-      if (data.is_wake_word || data.label === 'wake_word') {
+      if (isWakeDetected) {
         this.playWakeChime();
+        const normalizedPhrase = this.normalizeWakeTranscript(this.manualTranscript || 'Hey Bis');
         if (this.ui) {
           this.ui.setState('speaking');
-          const msg = `¡Hola! Wake Word "Hey Bis" confirmada por la red neuronal (${pWake}% de confianza en ${data.inference_time_ms} ms).`;
+          const msg = `¡Hola! Llamado "${normalizedPhrase}" detectado (${pWake}% de confianza en ${data.inference_time_ms} ms). ¿En qué puedo ayudarte?`;
           this.ui.setTranscript(msg, 'bis', true);
-          this.ui.speakAudio('Hola, Hey Bis detectado. Te escucho.');
+          this.ui.speakAudio('Hola, te escucho. ¿En qué puedo ayudarte?');
           this.ui.updateSubtext(
             `✨ Wake Word: ${pWake}% • Otra voz: ${pSpeech}% • Fondo: ${pBg}% (${data.inference_time_ms} ms)`
           );
@@ -424,7 +419,7 @@ class AudioReactive {
         if (this.ui) {
           this.ui.setState('idle');
           this.ui.setTranscript(
-            `Se detectó voz humana (${pSpeech}%), pero no la frase "Hey Bis" (${pWake}%).`,
+            `Se detectó voz humana (${pSpeech}%), pero no un llamado como "Hey Bis" o "Hola Bis" (${pWake}%).`,
             'bis',
             true
           );
@@ -436,7 +431,7 @@ class AudioReactive {
         if (this.ui) {
           this.ui.setState('idle');
           this.ui.setTranscript(
-            `Ruido ambiental o silencio detectado (${pBg}%). Acércate al micrófono y di "Hey Bis".`,
+            `Ruido ambiental o silencio detectado (${pBg}%). Acércate al micrófono y di "Hey Bis" o "Hola Bis".`,
             'bis',
             true
           );
@@ -469,9 +464,8 @@ class AudioReactive {
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 3;
 
-    // Detect language: support Spanish and English
-    const userLang = navigator.language || 'es-ES';
-    this.recognition.lang = userLang.startsWith('es') ? 'es-ES' : 'en-US';
+    // Configura español (es-MX) por defecto porque reconoce tanto "Hey Bis" como "Hola Bis" / "Oye Bis"
+    this.recognition.lang = 'es-MX';
 
     this.recognition.onstart = () => {
       this.isRecognizing = true;
@@ -501,6 +495,7 @@ class AudioReactive {
   startRecognition() {
     if (!this.recognition || this.isRecognizing) return;
     try {
+      this.recognition.lang = 'es-MX';
       this.recognition.start();
     } catch (e) {
       // Already running
@@ -518,47 +513,73 @@ class AudioReactive {
   // ==========================================================================
   // WAKE WORD & CONVERSATION PIPELINE
   // ==========================================================================
+  getWakePatterns() {
+    return [
+      /\b(?:hey|ey|hi|hello|okay|ok|a)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|beat|bits|bit|piece|peace|miss|liz|luis|gris|pis|fis|dis|this|bitch|beach|peach|fish|wish|base|bass|vase)\b/i,
+      /\b(?:hola|ola|holla|oye|oyi|oh\s*yeah|all\s+of|all\s+the|hold\s+a)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|beat|bits|bit|piece|peace|miss|liz|luis|gris|pis|fis|dis|these|this|bitch|beach)\b/i,
+      /\b(?:bis|hevis|heavies|elvis|pelvis|avis|ibis|abis|abies|habis|holabis|olabis|oyebis|heybis|eybis)\b/i,
+    ];
+  }
+
+  normalizeWakeTranscript(rawText) {
+    if (!rawText) return 'Hey Bis';
+    let text = rawText;
+    text = text.replace(
+      /\b(?:hola|ola|holla|all\s+of|all\s+the|hold\s+a)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|beat|bits|bit|piece|peace|miss|liz|luis|gris|pis|fis|dis|these|this|bitch|beach)\b/gi,
+      'Hola Bis'
+    );
+    text = text.replace(
+      /\b(?:oye|oyi|oh\s*yeah)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|beat|bits|bit|piece|peace|miss|liz|luis|gris|pis|fis|dis|this|bitch|beach)\b/gi,
+      'Oye Bis'
+    );
+    text = text.replace(
+      /\b(?:hey|ey|hi|hello|okay|ok|a)\s*(?:bis|vis|biz|bees|beast|beasts|best|beats|beat|bits|bit|piece|peace|miss|liz|luis|gris|pis|fis|dis|this|bitch|beach|peach|fish|wish|base|bass|vase)\b/gi,
+      'Hey Bis'
+    );
+    text = text.replace(
+      /\b(?:hevis|heavies|elvis|pelvis|avis|ibis|abis|abies|habis|heybis|eybis)\b/gi,
+      'Hey Bis'
+    );
+    text = text.replace(/\b(?:holabis|olabis)\b/gi, 'Hola Bis');
+    text = text.replace(/\b(?:oyebis)\b/gi, 'Oye Bis');
+    return text;
+  }
+
   handleSpeechResult(event) {
     let interimTranscript = '';
     let finalTranscript = '';
+    let allAlternativesText = '';
 
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
+      const res = event.results[i];
+      const transcript = res[0].transcript;
+      if (res.isFinal) {
         finalTranscript += transcript;
       } else {
         interimTranscript += transcript;
       }
+      for (let a = 0; a < res.length; a++) {
+        allAlternativesText += ' ' + res[a].transcript;
+      }
     }
 
-    const currentText = (finalTranscript || interimTranscript).trim().toLowerCase();
-    if (!currentText) return;
+    const rawText = (finalTranscript || interimTranscript).trim().toLowerCase();
+    if (!rawText) return;
+
+    const wakePatterns = this.getWakePatterns();
+    const hasWakeWord = wakePatterns.some(
+      pattern => pattern.test(rawText) || pattern.test(allAlternativesText)
+    );
+    const currentText = hasWakeWord ? this.normalizeWakeTranscript(rawText) : rawText;
+
+    if (this.isManualCapturing) {
+      this.manualTranscript = currentText;
+    }
 
     // Show live debug text of what the microphone is hearing in the subtext
     if (this.hudSubtext && !this.isAwake) {
-      this.hudSubtext.innerHTML = `<span>🟢 Oído: "<em>${this.escapeHtml(currentText)}</em>"</span> <span class="dot"></span> <span>Di "Hey Bis"</span>`;
+      this.hudSubtext.innerHTML = `<span>🟢 Oído: "<em>${this.escapeHtml(currentText)}</em>"</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>`;
     }
-
-    // Extended Wake Word Patterns (includes phonetic transcriptions in Spanish & English)
-    const wakePatterns = [
-      /hey\s*bis/i,
-      /oye\s*bis/i,
-      /hola\s*bis/i,
-      /ey\s*bis/i,
-      /hey\s*vis/i,
-      /ey\s*vis/i,
-      /\bbis\b/i,
-      /ok\s*bis/i,
-      /\bhevis\b/i,
-      /\belvis\b/i,
-      /\bavis\b/i,
-      /\bibis\b/i,
-      /hey\s*biz/i,
-      /hey\s*bees/i,
-      /hey\s*peace/i
-    ];
-
-    const hasWakeWord = wakePatterns.some(pattern => pattern.test(currentText));
 
     // CASE 1: Asleep, waiting for wake phrase
     if (!this.isAwake) {
@@ -590,25 +611,28 @@ class AudioReactive {
     }
   }
 
-  triggerWake(fullText) {
+  triggerWake(fullText, meta = null) {
     this.isAwake = true;
     this.accumulatedQuery = '';
     this.playWakeChime();
 
+    const displayWake = this.normalizeWakeTranscript(fullText || 'Hey Bis');
+
     if (this.ui) {
       this.ui.setState('listening');
-      this.ui.setTranscript('"Hey Bis..."', 'user', true);
-      this.ui.updateSubtext('🟢 ¡Te escucho! Di tu pregunta o comando...');
+      this.ui.setTranscript(`"${displayWake}..."`, 'user', true);
+      if (meta && meta.source === 'neural_network') {
+        this.ui.updateSubtext(
+          `✨ Wake Word detectada por la Red Neuronal (${meta.confidencePct}% • ${meta.latencyMs} ms) — ¡Di tu pregunta!`
+        );
+      } else {
+        this.ui.updateSubtext('🟢 ¡Te escucho! Di tu pregunta o comando...');
+      }
     }
 
-    // Check if user already asked in the same sentence (e.g. "Hey Bis qué hora es")
-    const wakePatterns = [
-      /hey\s*bis/i, /oye\s*bis/i, /hola\s*bis/i, /ey\s*bis/i,
-      /hey\s*vis/i, /ey\s*vis/i, /\bbis\b/i, /ok\s*bis/i,
-      /\bhevis\b/i, /\belvis\b/i, /\bavis\b/i, /hey\s*biz/i
-    ];
+    const wakePatterns = this.getWakePatterns();
 
-    let queryInSameSentence = fullText;
+    let queryInSameSentence = fullText || '';
     wakePatterns.forEach(pattern => {
       queryInSameSentence = queryInSameSentence.replace(pattern, '').trim();
     });
@@ -620,7 +644,7 @@ class AudioReactive {
         this.processUserCommand(this.accumulatedQuery);
       }, 1200);
     } else {
-      // 6-second timeout if user doesn't say anything after "Hey Bis"
+      // 6-second timeout if user doesn't say anything after "Hey Bis" / "Hola Bis"
       if (this.silenceTimer) clearTimeout(this.silenceTimer);
       this.silenceTimer = setTimeout(() => {
         if (!this.accumulatedQuery) {
