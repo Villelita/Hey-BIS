@@ -41,6 +41,7 @@ class AudioReactive {
     this.isRecognizing = false;
     this.isAwake = false;
     this.silenceTimer = null;
+    this.idleSubtextTimer = null;
     this.accumulatedQuery = '';
 
     // Cache UI Elements
@@ -579,6 +580,12 @@ class AudioReactive {
     // Show live real-time text of what the microphone is hearing directly in the single subtle footer line
     if (!this.isAwake && this.hudSubtext) {
       this.hudSubtext.innerHTML = `<span>🟢 ${this.escapeHtml(currentText)}</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>`;
+      if (this.idleSubtextTimer) clearTimeout(this.idleSubtextTimer);
+      this.idleSubtextTimer = setTimeout(() => {
+        if (!this.isAwake && this.hudSubtext && this.isMicActive) {
+          this.hudSubtext.innerHTML = `<span>🟢 Micrófono activo</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>`;
+        }
+      }, 2500);
     }
 
     // CASE 1: Asleep, waiting for wake phrase
@@ -694,7 +701,7 @@ class AudioReactive {
 
     if (this.ui && this.ui.state !== 'idle') {
       this.ui.setState('idle');
-      this.ui.updateSubtext('🟢 Atento a "Hey Bis" • Micrófono en vivo');
+      this.ui.updateSubtext('<span>🟢 Micrófono activo</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>');
     }
   }
 
