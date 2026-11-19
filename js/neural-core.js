@@ -55,7 +55,8 @@ class NeuralCore {
       glowIntensity: 1.2,
       noiseSpeed: 0.55,
       audioPulse: 0.0,
-      colorShift: 0.0
+      colorShift: 0.0,
+      scale: 0.92
     };
 
     this.targets = {
@@ -65,7 +66,21 @@ class NeuralCore {
       glowIntensity: 1.2,
       noiseSpeed: 0.55,
       audioPulse: 0.0,
-      colorShift: 0.0
+      colorShift: 0.0,
+      scale: 0.92
+    };
+
+    // Smooth RGB color lerping (changes smoothly when a trigger activates)
+    const initPal = this.palettes[this.palette] || this.palettes.green;
+    this.currentColors = {
+      primary: [...initPal.primary],
+      secondary: [...initPal.secondary],
+      accent: [...initPal.accent]
+    };
+    this.targetColors = {
+      primary: [...initPal.primary],
+      secondary: [...initPal.secondary],
+      accent: [...initPal.accent]
     };
 
     this.startTime = performance.now();
@@ -488,6 +503,9 @@ class NeuralCore {
   setPalette(paletteName) {
     if (this.palettes[paletteName]) {
       this.palette = paletteName;
+      const curState = this.state;
+      this.state = null;
+      this.setState(curState);
     }
   }
 
@@ -499,50 +517,87 @@ class NeuralCore {
     this.state = newState;
 
     switch (newState) {
-      case 'idle':
+      case 'idle': {
+        const pal = this.palettes[this.palette] || this.palettes.green;
         this.targets.rotationSpeed = 0.005;
         this.targets.deformScale = 0.22;
         this.targets.deformFreq = 1.45;
         this.targets.glowIntensity = 1.15;
         this.targets.noiseSpeed = 0.5;
         this.targets.colorShift = 0.0;
+        this.targets.scale = 0.92;
+        this.targetColors = {
+          primary: [...pal.primary],
+          secondary: [...pal.secondary],
+          accent: [...pal.accent]
+        };
         break;
+      }
 
-      case 'listening':
-        this.targets.rotationSpeed = 0.012;
-        this.targets.deformScale = 0.28;
-        this.targets.deformFreq = 1.9;
-        this.targets.glowIntensity = 1.45;
-        this.targets.noiseSpeed = 0.95;
-        this.targets.colorShift = -0.4;
-        break;
-
-      case 'thinking':
-        this.targets.rotationSpeed = 0.034;
+      case 'listening': {
+        // Trigger detected: sphere expands larger and shifts to electric cyan / magenta
+        const trig = this.palette === 'green' ? this.palettes.cyberpunk : this.palettes.green;
+        this.targets.rotationSpeed = 0.015;
         this.targets.deformScale = 0.34;
-        this.targets.deformFreq = 2.4;
-        this.targets.glowIntensity = 1.35;
-        this.targets.noiseSpeed = 1.5;
-        this.targets.colorShift = 0.6;
+        this.targets.deformFreq = 1.95;
+        this.targets.glowIntensity = 1.65;
+        this.targets.noiseSpeed = 1.05;
+        this.targets.colorShift = -0.3;
+        this.targets.scale = 1.22;
+        this.targetColors = {
+          primary: [...trig.primary],
+          secondary: [...trig.secondary],
+          accent: [...trig.accent]
+        };
         break;
+      }
 
-      case 'speaking':
-        // Pronounced organic undulating hills & peaks matching reference image
-        this.targets.rotationSpeed = 0.018;
-        this.targets.deformScale = 0.42;   // High-amplitude undulating lobes
-        this.targets.deformFreq = 1.6;    // Broad organic bulbous hills & valleys
-        this.targets.glowIntensity = 1.65;  // Brilliant neon luminescence
-        this.targets.noiseSpeed = 1.1;    // Liquid morphing pace
-        this.targets.colorShift = 0.2;
+      case 'thinking': {
+        this.targets.rotationSpeed = 0.032;
+        this.targets.deformScale = 0.36;
+        this.targets.deformFreq = 2.3;
+        this.targets.glowIntensity = 1.55;
+        this.targets.noiseSpeed = 1.45;
+        this.targets.colorShift = 0.55;
+        this.targets.scale = 1.16;
+        this.targetColors = {
+          primary: [0.66, 0.20, 1.0],   // Electric Violet
+          secondary: [1.0, 0.0, 0.55],  // Neon Magenta
+          accent: [0.0, 0.94, 1.0]      // Neon Cyan
+        };
         break;
+      }
+
+      case 'speaking': {
+        const trig = this.palette === 'green' ? this.palettes.cyberpunk : this.palettes.green;
+        this.targets.rotationSpeed = 0.018;
+        this.targets.deformScale = 0.44;
+        this.targets.deformFreq = 1.6;
+        this.targets.glowIntensity = 1.75;
+        this.targets.noiseSpeed = 1.15;
+        this.targets.colorShift = 0.25;
+        this.targets.scale = 1.26;
+        this.targetColors = {
+          primary: [...trig.secondary],
+          secondary: [...trig.primary],
+          accent: [...trig.accent]
+        };
+        break;
+      }
 
       case 'error':
         this.targets.rotationSpeed = 0.007;
-        this.targets.deformScale = 0.18;
+        this.targets.deformScale = 0.20;
         this.targets.deformFreq = 1.3;
-        this.targets.glowIntensity = 1.1;
-        this.targets.noiseSpeed = 0.4;
+        this.targets.glowIntensity = 1.2;
+        this.targets.noiseSpeed = 0.45;
         this.targets.colorShift = 0.8;
+        this.targets.scale = 0.96;
+        this.targetColors = {
+          primary: [1.0, 0.62, 0.05],
+          secondary: [1.0, 0.22, 0.22],
+          accent: [1.0, 0.85, 0.2]
+        };
         break;
     }
   }
@@ -564,18 +619,32 @@ class NeuralCore {
 
     // Smooth lerping of state parameters
     const lerpRate = 4.5 * dt;
-    this.params.rotationSpeed += (this.targets.rotationSpeed - this.params.rotationSpeed) * lerpRate;
-    this.params.deformScale += (this.targets.deformScale - this.params.deformScale) * lerpRate;
-    this.params.deformFreq += (this.targets.deformFreq - this.params.deformFreq) * lerpRate;
-    this.params.glowIntensity += (this.targets.glowIntensity - this.params.glowIntensity) * lerpRate;
-    this.params.noiseSpeed += (this.targets.noiseSpeed - this.params.noiseSpeed) * lerpRate;
-    this.params.colorShift += (this.targets.colorShift - this.params.colorShift) * lerpRate;
+    const reactiveDeform = this.targets.deformScale + this.liveAudioLevel * 0.28;
+    const reactiveScale = this.targets.scale + this.liveAudioLevel * 0.14;
+    const reactiveSpeed = this.targets.rotationSpeed + this.liveAudioLevel * 0.022;
+    const reactiveNoise = this.targets.noiseSpeed + this.liveAudioLevel * 0.85;
 
-    // Audio reactivity
-    const targetAudio = this.state === 'speaking' || this.state === 'listening' 
-      ? Math.max(this.liveAudioLevel, Math.sin(elapsed * 7.5) * 0.2 + 0.2)
-      : this.liveAudioLevel;
-    this.params.audioPulse += (targetAudio - this.params.audioPulse) * (12.0 * dt);
+    this.params.rotationSpeed += (reactiveSpeed - this.params.rotationSpeed) * lerpRate;
+    this.params.deformScale += (reactiveDeform - this.params.deformScale) * (8.0 * dt);
+    this.params.deformFreq += (this.targets.deformFreq - this.params.deformFreq) * lerpRate;
+    this.params.glowIntensity += ((this.targets.glowIntensity + this.liveAudioLevel * 0.35) - this.params.glowIntensity) * (6.0 * dt);
+    this.params.noiseSpeed += (reactiveNoise - this.params.noiseSpeed) * lerpRate;
+    this.params.colorShift += (this.targets.colorShift - this.params.colorShift) * lerpRate;
+    this.params.scale += (reactiveScale - this.params.scale) * (6.0 * dt);
+
+    // Smooth RGB color transition
+    const colorLerp = Math.min(1.0, 5.0 * dt);
+    for (const key of ['primary', 'secondary', 'accent']) {
+      for (let c = 0; c < 3; c++) {
+        this.currentColors[key][c] += (this.targetColors[key][c] - this.currentColors[key][c]) * colorLerp;
+      }
+    }
+
+    // Audio reactivity (always responds to ambient sound / any speech even in idle)
+    const targetAudio = this.state === 'speaking' || this.state === 'listening'
+      ? Math.max(this.liveAudioLevel * 1.15, Math.sin(elapsed * 7.5) * 0.2 + 0.22)
+      : this.liveAudioLevel * 1.25;
+    this.params.audioPulse += (targetAudio - this.params.audioPulse) * (14.0 * dt);
 
     // Continuous rotation
     this.targetRotation.y += this.params.rotationSpeed;
@@ -608,7 +677,7 @@ class NeuralCore {
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    const pal = this.palettes[this.palette] || this.palettes.green;
+    const pal = this.currentColors;
 
     // Camera Matrices
     const aspect = this.canvas.width / this.canvas.height;
@@ -619,6 +688,8 @@ class NeuralCore {
     this.translateMatrix(viewMatrix, 0, 0, -5.2);
 
     const modelMatrix = this.createIdentityMatrix();
+    const s = this.params.scale;
+    modelMatrix[0] = s; modelMatrix[5] = s; modelMatrix[10] = s;
     this.rotateXMatrix(modelMatrix, this.rotation.x);
     this.rotateYMatrix(modelMatrix, this.rotation.y);
 
@@ -670,8 +741,9 @@ class NeuralCore {
     // -------------------------------------------------------------
     gl.useProgram(this.particleProgram);
 
-    // Counter-rotate slightly for rich 3D orbital depth
+    // Counter-rotate slightly for rich 3D orbital depth and scale with sphere
     const haloModelMatrix = this.createIdentityMatrix();
+    haloModelMatrix[0] = s; haloModelMatrix[5] = s; haloModelMatrix[10] = s;
     this.rotateXMatrix(haloModelMatrix, this.rotation.x * 0.85);
     this.rotateYMatrix(haloModelMatrix, -this.rotation.y * 0.45);
     const haloMv = this.multiplyMatrices(viewMatrix, haloModelMatrix);

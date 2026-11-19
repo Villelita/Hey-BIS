@@ -218,9 +218,9 @@ class AudioReactive {
       sum += this.dataArray[i];
     }
     const avg = sum / len; // 0 to 255
-    const normalized = Math.min(1.0, (avg / 100.0));
+    const normalized = Math.min(1.0, (avg / 55.0));
 
-    // Modulate 3D Neural Core displacement in real time with voice volume
+    // Modulate 3D Neural Core displacement & scale in real time with ANY ambient sound/voice
     if (this.core) {
       this.core.setAudioLevel(normalized);
     }
@@ -576,9 +576,14 @@ class AudioReactive {
       this.manualTranscript = currentText;
     }
 
-    // Show live debug text of what the microphone is hearing in the subtext
-    if (this.hudSubtext && !this.isAwake) {
-      this.hudSubtext.innerHTML = `<span>🟢 Oído: "<em>${this.escapeHtml(currentText)}</em>"</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis"</span>`;
+    // Show live real-time text of what the microphone is hearing in the minimalist footer
+    if (!this.isAwake) {
+      if (this.ui) {
+        this.ui.setTranscript(`"${currentText}"`, 'user', false);
+      }
+      if (this.hudSubtext) {
+        this.hudSubtext.innerHTML = `<span>🟢 Escuchando en tiempo real</span> <span class="dot"></span> <span>Di "Hey Bis" o "Hola Bis" para activar</span>`;
+      }
     }
 
     // CASE 1: Asleep, waiting for wake phrase

@@ -85,12 +85,11 @@
     </div>
 
     <!-- ====================================================================
-         BOTTOM DOCK: Sleek Glassmorphism Transcription HUD Card
+         BOTTOM FOOTER: Minimalist Real-Time Live Listening Bar
          ==================================================================== -->
-    <footer class="bottom-dock">
-      <div class="hud-glass-card" id="hud-glass-card">
-        <!-- Card Header: Speaker & Visualizer -->
-        <div class="hud-header">
+    <footer class="bottom-dock kiosk-footer">
+      <div class="hud-glass-card kiosk-live-footer" id="hud-glass-card">
+        <div class="hud-header kiosk-footer-meta">
           <div class="speaker-badge-wrap">
             <div class="speaker-avatar-circle" id="speaker-avatar">B</div>
             <span class="speaker-name" id="speaker-name">Bis</span>
@@ -102,47 +101,22 @@
               <div class="bar"></div>
             </div>
           </div>
-          <div class="hud-timestamp" id="hud-timestamp">00:00:00</div>
+          <div class="kiosk-footer-actions">
+            <button class="prompt-chip kiosk-mic-btn" id="btn-manual-mic" title="Grabar y analizar con la red neuronal">
+              🎙️ Hablar ahora
+            </button>
+            <div class="hud-timestamp" id="hud-timestamp">00:00:00</div>
+          </div>
         </div>
 
-        <!-- Card Body: Real-time Transcribed Text -->
-        <div class="hud-body">
+        <div class="hud-body kiosk-footer-body">
           <div class="transcription-text" id="transcription-text">
-            Awaiting wake word "Hey Bis" or screen touch...<span class="cursor"></span>
+            Escuchando entorno en vivo... di "Hey Bis" o "Hola Bis"<span class="cursor"></span>
           </div>
           <div class="hud-subtext" id="hud-subtext">
-            <span>Say "Hey Bis" or tap a suggestion below</span>
-            <span class="dot"></span>
-            <span>Space: Toggle Wake</span>
+            <span>🟢 En vivo • La esfera reacciona al sonido y se activa con "Hey Bis" / "Hola Bis"</span>
           </div>
         </div>
-      </div>
-
-      <!-- Quick Interactive Prompt Suggestions -->
-      <div class="quick-prompts-row" id="quick-prompts">
-        <button class="prompt-chip" id="btn-manual-mic" style="background: rgba(0, 255, 136, 0.22); border-color: var(--neon-green); color: #fff; font-weight: 500;">
-          🎙️ Hablar ahora
-        </button>
-        <button class="prompt-chip" 
-          data-query="¿Qué hora es?" 
-          data-reply="Son exactamente las horas actuales con sincronización neuronal en tiempo real.">
-          "¿Qué hora es?"
-        </button>
-        <button class="prompt-chip" 
-          data-query="Bis, run system diagnostic." 
-          data-reply="Diagnostic complete: All four CPU cores at 42 degrees. Neural mesh latency is 1.4 milliseconds.">
-          "Bis, run system diagnostic."
-        </button>
-        <button class="prompt-chip" 
-          data-query="Play ambient cyberpunk music." 
-          data-reply="Streaming synthwave ambient frequency on audio channel zero.">
-          "Play ambient music"
-        </button>
-        <button class="prompt-chip" 
-          data-query="Set a countdown timer for 10 minutes." 
-          data-reply="Timer initialized for ten minutes. I will alert you upon completion.">
-          "Set a 10 min timer"
-        </button>
       </div>
     </footer>
 
@@ -202,11 +176,11 @@
   </div>
 
   <!-- Core JavaScript Modules -->
-  <script src="js/neural-core.js?v=4"></script>
-  <script src="js/assistant-ui.js?v=4"></script>
-  <script src="js/audio-reactive.js?v=4"></script>
-  <script src="js/api-bridge.js?v=4"></script>
-  <script src="js/main.js?v=4"></script>
+  <script src="js/neural-core.js?v=5"></script>
+  <script src="js/assistant-ui.js?v=5"></script>
+  <script src="js/audio-reactive.js?v=5"></script>
+  <script src="js/api-bridge.js?v=5"></script>
+  <script src="js/main.js?v=5"></script>
 </body>
 </html>
 
