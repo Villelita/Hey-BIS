@@ -1,6 +1,7 @@
 __pycache__/
 .venv/
-tmp/
+tmp/*
+!tmp/README.md
 service/dataset.local.json
 
 # Datos y grabaciones locales
