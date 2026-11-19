@@ -85,38 +85,16 @@
     </div>
 
     <!-- ====================================================================
-         BOTTOM FOOTER: Minimalist Real-Time Live Listening Bar
+         BOTTOM FOOTER: Pure Floating Real-Time Heard Text (No Box / Card)
          ==================================================================== -->
-    <footer class="bottom-dock kiosk-footer">
-      <div class="hud-glass-card kiosk-live-footer" id="hud-glass-card">
-        <div class="hud-header kiosk-footer-meta">
-          <div class="speaker-badge-wrap">
-            <div class="speaker-avatar-circle" id="speaker-avatar">B</div>
-            <span class="speaker-name" id="speaker-name">Bis</span>
-            <div class="card-spectrum-bars">
-              <div class="bar"></div>
-              <div class="bar"></div>
-              <div class="bar"></div>
-              <div class="bar"></div>
-              <div class="bar"></div>
-            </div>
-          </div>
-          <div class="kiosk-footer-actions">
-            <button class="prompt-chip kiosk-mic-btn" id="btn-manual-mic" title="Grabar y analizar con la red neuronal">
-              🎙️ Hablar ahora
-            </button>
-            <div class="hud-timestamp" id="hud-timestamp">00:00:00</div>
-          </div>
-        </div>
-
-        <div class="hud-body kiosk-footer-body">
-          <div class="transcription-text" id="transcription-text">
-            Escuchando entorno en vivo... di "Hey Bis" o "Hola Bis"<span class="cursor"></span>
-          </div>
-          <div class="hud-subtext" id="hud-subtext">
-            <span>🟢 En vivo • La esfera reacciona al sonido y se activa con "Hey Bis" / "Hola Bis"</span>
-          </div>
-        </div>
+    <footer class="bottom-dock kiosk-footer-minimal">
+      <div class="transcription-text kiosk-live-text" id="transcription-text">
+        Escuchando en vivo...<span class="cursor"></span>
+      </div>
+      <div class="hud-subtext kiosk-live-subtext" id="hud-subtext">
+        <span>🟢 Oído en tiempo real</span>
+        <span class="dot"></span>
+        <span>Di "Hey Bis" o "Hola Bis"</span>
       </div>
     </footer>
 
@@ -176,11 +154,11 @@
   </div>
 
   <!-- Core JavaScript Modules -->
-  <script src="js/neural-core.js?v=5"></script>
-  <script src="js/assistant-ui.js?v=5"></script>
-  <script src="js/audio-reactive.js?v=5"></script>
-  <script src="js/api-bridge.js?v=5"></script>
-  <script src="js/main.js?v=5"></script>
+  <script src="js/neural-core.js?v=6"></script>
+  <script src="js/assistant-ui.js?v=6"></script>
+  <script src="js/audio-reactive.js?v=6"></script>
+  <script src="js/api-bridge.js?v=6"></script>
+  <script src="js/main.js?v=6"></script>
 </body>
 </html>
 
