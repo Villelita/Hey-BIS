@@ -133,11 +133,54 @@ EOF
     fi
 
     echo ""
-    echo "================================================================"
-    echo "    ¡HEY-BIS DESPLEGADO, ENTRENADO Y ACTIVO EN RASPBERRY PI!    "
-    echo "================================================================"
-    sudo systemctl status hey-bis.service --no-pager
+    sudo systemctl status hey-bis.service --no-pager || true
 else
     echo "[6/6] Entorno sin systemd detectado. Puedes iniciar el servidor manualmente con:"
     echo "      $REPO_DIR/.venv/bin/python3 $REPO_DIR/service/server.py --weights $MODEL_PATH"
 fi
+
+# Detectar automáticamente la IP de la red local y mostrar las URLs exactas de conexión
+HTTPS_PORT="${HTTPS_PORT:-8443}"
+HOST_NAME="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo 'raspberrypi')"
+LAN_IP="$(python -c '
+import socket
+ip = ""
+try:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(0.5)
+        s.connect(("8.8.8.8", 80))
+        cand = s.getsockname()[0]
+        if cand and not cand.startswith("127."):
+            ip = cand
+except Exception:
+    pass
+print(ip)
+' 2>/dev/null || true)"
+
+if [ -z "$LAN_IP" ] && command -v hostname &>/dev/null; then
+    LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+fi
+if [ -z "$LAN_IP" ]; then
+    LAN_IP="127.0.0.1"
+fi
+
+echo ""
+echo "================================================================"
+echo "    ¡HEY-BIS LISTO! DIRECCIONES PARA CONECTARTE EN TU RED       "
+echo "================================================================"
+echo "  * IP de este equipo:      $LAN_IP"
+echo ""
+echo "  * Interfaz 3D Kiosk (HTTPS - Micrófono en celular/PC):"
+echo "      https://$LAN_IP:$HTTPS_PORT/kiosk"
+echo "      https://${HOST_NAME}.local:$HTTPS_PORT/kiosk"
+echo ""
+echo "  * Panel de Control / Pruebas (HTTPS):"
+echo "      https://$LAN_IP:$HTTPS_PORT/"
+echo ""
+echo "  * Acceso HTTP (sin HTTPS):"
+echo "      http://$LAN_IP:$PORT/kiosk"
+echo "      http://localhost:$PORT/kiosk"
+echo "================================================================"
+echo "  Nota: Al abrir https:// por primera vez en tu celular o PC,"
+echo "  acepta el aviso de certificado local para activar el micrófono."
+echo "================================================================"

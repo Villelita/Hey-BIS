@@ -660,11 +660,12 @@ def run_server(
     print(f"  * Estado Pesos:    {weights_display}")
     print(f"  * Umbral Activo:   {wake_threshold:.2f}")
     print(f"  * Dataset:         {DATA_DIR}")
-    print(f"  * Acceso Local:    http://localhost:{port}")
+    print(f"  * Acceso Local:    http://localhost:{port}/kiosk")
     for ip in lan_ips:
-        print(f"  * Red Local HTTP:  http://{ip}:{port}")
+        print(f"  * Red Local HTTP:  http://{ip}:{port}/kiosk")
         if HeyBISHandler.https_port:
-            print(f"  * Red Local HTTPS: https://{ip}:{HeyBISHandler.https_port}  <-- (Micrófono en vivo en celular/PC)")
+            print(f"  * Kiosk HTTPS:     https://{ip}:{HeyBISHandler.https_port}/kiosk  <-- (Micrófono en vivo en celular/PC)")
+            print(f"  * Panel HTTPS:     https://{ip}:{HeyBISHandler.https_port}/")
     print("=" * 64)
     print("  Conéctate desde cualquier navegador en tu red local o móvil.")
     print("  Presiona Ctrl + C para detener el servidor.\n")
