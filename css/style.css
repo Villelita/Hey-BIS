@@ -966,3 +966,35 @@ body[data-state="speaking"] .kiosk-live-text {
   color: #ffffff;
   text-shadow: 0 2px 20px rgba(0, 0, 0, 0.9), 0 0 18px rgba(0, 240, 255, 0.45);
 }
+
+/* ==========================================================================
+   CYBERPUNK / NEON PINK PALETTE OVERRIDES (Matches Dev Dock Switcher)
+   ========================================================================== */
+body[data-palette="cyberpunk"] .neural-radial-glow {
+  background: radial-gradient(circle, rgba(255, 0, 127, 0.22) 0%, rgba(0, 240, 255, 0.14) 45%, transparent 72%);
+}
+
+body[data-palette="cyberpunk"] .orbit-ring-1 {
+  border-color: rgba(255, 0, 127, 0.22);
+}
+
+body[data-palette="cyberpunk"] .orbit-ring-2 {
+  border-color: rgba(0, 240, 255, 0.18);
+}
+
+body[data-palette="cyberpunk"] .core-pulse-indicator,
+body[data-palette="cyberpunk"] .core-pulse-indicator::after {
+  background: #ff007f;
+  border-color: #ff007f;
+  box-shadow: 0 0 12px #ff007f;
+}
+
+body[data-palette="cyberpunk"] .brand-title span.highlight {
+  color: #ff007f;
+  text-shadow: 0 0 12px #ff007f;
+}
+
+body[data-palette="cyberpunk"][data-state="listening"] .neural-radial-glow,
+body[data-palette="cyberpunk"][data-state="speaking"] .neural-radial-glow {
+  background: radial-gradient(circle, rgba(0, 255, 136, 0.24) 0%, rgba(174, 255, 0, 0.14) 45%, transparent 72%);
+}

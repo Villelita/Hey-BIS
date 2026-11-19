@@ -503,9 +503,15 @@ class NeuralCore {
   setPalette(paletteName) {
     if (this.palettes[paletteName]) {
       this.palette = paletteName;
-      const curState = this.state;
+      const curState = this.state || 'idle';
       this.state = null;
       this.setState(curState);
+      // Apply immediate visual feedback while keeping smooth subtle transitions
+      this.currentColors = {
+        primary: [...this.targetColors.primary],
+        secondary: [...this.targetColors.secondary],
+        accent: [...this.targetColors.accent]
+      };
     }
   }
 

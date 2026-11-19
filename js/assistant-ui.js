@@ -305,8 +305,12 @@ class AssistantUI {
     const btnGreen = document.getElementById('btn-palette-green');
     const btnCyber = document.getElementById('btn-palette-cyber');
     if (btnGreen && btnCyber && this.core) {
-      btnGreen.addEventListener('click', () => {
+      btnGreen.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.core.setPalette('green');
+        document.body.setAttribute('data-palette', 'green');
+        btnGreen.classList.add('active');
+        btnCyber.classList.remove('active');
         btnGreen.style.background = 'rgba(0, 255, 136, 0.25)';
         btnGreen.style.borderColor = 'var(--neon-green)';
         btnGreen.style.color = '#fff';
@@ -315,8 +319,12 @@ class AssistantUI {
         btnCyber.style.color = '#ff80bf';
       });
 
-      btnCyber.addEventListener('click', () => {
+      btnCyber.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.core.setPalette('cyberpunk');
+        document.body.setAttribute('data-palette', 'cyberpunk');
+        btnCyber.classList.add('active');
+        btnGreen.classList.remove('active');
         btnCyber.style.background = 'rgba(255, 0, 127, 0.25)';
         btnCyber.style.borderColor = 'var(--neon-magenta)';
         btnCyber.style.color = '#fff';
