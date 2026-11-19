@@ -15,7 +15,10 @@ import json
 import mimetypes
 from pathlib import Path
 import socket
+import ssl
+import subprocess
 import sys
+import threading
 import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -183,11 +186,12 @@ def generate_synthetic_wav(sample_type: str = "silence", duration_sec: float = 1
 
 
 class HeyBISHandler(SimpleHTTPRequestHandler):
-    """Manejador HTTP para servir la interfaz web y la API REST de inferencia."""
+    """Manejador HTTP/HTTPS para servir la interfaz web y la API REST de inferencia."""
 
     classifier: AudioNoiseClassifier
     weights_path_str: str | None
     server_port: int
+    https_port: int | None
     lan_ips: List[str]
 
     def __init__(self, *args, **kwargs):
@@ -249,8 +253,13 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 },
                 "network_access": {
                     "port": self.server_port,
+                    "https_port": self.https_port,
                     "localhost_url": f"http://localhost:{self.server_port}",
                     "lan_urls": [f"http://{ip}:{self.server_port}" for ip in self.lan_ips],
+                    "https_lan_urls": (
+                        [f"https://{ip}:{self.https_port}" for ip in self.lan_ips]
+                        if self.https_port else []
+                    ),
                 },
             })
             return
@@ -271,7 +280,33 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 self.send_json_response({"error": str(exc)}, status=500)
             return
 
-        # Servir index.html en raíz
+        # Servir interfaz 3D Kiosk en /kiosk y sus recursos css/ y js/ de la raíz
+        if path in ("/kiosk", "/kiosk/", "/assistant"):
+            kiosk_file = PROJECT_ROOT / "index.html"
+            if kiosk_file.is_file():
+                data = kiosk_file.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_cors_headers()
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+        if path.startswith("/css/") or path.startswith("/js/"):
+            root_asset = (PROJECT_ROOT / path.lstrip("/")).resolve()
+            if root_asset.is_relative_to(PROJECT_ROOT) and root_asset.is_file():
+                mime_type, _ = mimetypes.guess_type(str(root_asset))
+                data = root_asset.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_cors_headers()
+                self.send_header("Content-Type", mime_type or "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+        # Servir index.html del panel de clasificación en raíz
         if path == "/" or path == "/index.html":
             self.path = "/index.html"
             return super().do_GET()
@@ -299,66 +334,7 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             self.handle_classify()
             return
 
-        if path == "/api/record-server-mic":
-            self.handle_record_server_mic()
-            return
-
         self.send_json_response({"error": f"Endpoint desconocido: {path}"}, status=404)
-
-    def handle_record_server_mic(self) -> None:
-        """Graba desde el micrófono físico del servidor cuando el cliente entra por HTTP sin WebRTC."""
-        start_time = time.perf_counter()
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            duration_sec = 1.5
-            if content_length > 0:
-                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
-                duration_sec = float(body.get("duration", 1.5))
-            duration_sec = max(0.5, min(duration_sec, 5.0))
-
-            import sounddevice as sd
-            n_frames = int(round(duration_sec * 16000))
-            rec = sd.rec(n_frames, samplerate=16000, channels=1, dtype="float32", blocking=True)
-            samples = rec[:, 0].astype(np.float32)
-
-            infer_start = time.perf_counter()
-            if hasattr(self.classifier, "classify_clip"):
-                inference_result = self.classifier.classify_clip(samples)
-            else:
-                inference_result = self.classifier.classify_samples(samples)
-            inference_ms = round((time.perf_counter() - infer_start) * 1000.0, 2)
-
-            # Generar WAV en base64 para reproductor del navegador
-            int_signal = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-            buf = io.BytesIO()
-            wavfile.write(buf, 16000, int_signal)
-            wav_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-
-            self.send_json_response({
-                "success": True,
-                "source": "server_microphone",
-                "label": inference_result["label"],
-                "is_wake_word": inference_result["is_wake_word"],
-                "confidence": round(float(inference_result["confidence"]), 4),
-                "wake_word_probability": round(float(inference_result["wake_word_probability"]), 4),
-                "probabilities": {
-                    k: round(float(v), 4) for k, v in inference_result["probabilities"].items()
-                },
-                "audio_info": {
-                    "samples_received": int(len(samples)),
-                    "duration_seconds": round(len(samples) / 16000.0, 3),
-                    "target_rate_hz": 16000,
-                },
-                "audio_wav_base64": f"data:audio/wav;base64,{wav_b64}",
-                "inference_time_ms": inference_ms,
-                "total_elapsed_ms": round((time.perf_counter() - start_time) * 1000.0, 2),
-                "wake_threshold": self.classifier.wake_threshold,
-            })
-        except Exception as exc:
-            self.send_json_response({
-                "success": False,
-                "error": f"No se pudo grabar desde el micrófono del servidor: {exc}",
-            }, status=400)
 
     def handle_set_threshold(self) -> None:
         """Actualiza el umbral dinámico de activación para 'Hey BIS'."""
@@ -461,13 +437,45 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             }, status=400)
 
 
+def ensure_ssl_cert(lan_ips: List[str]) -> Tuple[Path, Path] | None:
+    """Genera un certificado SSL autofirmado para habilitar el micrófono del dispositivo cliente en LAN (HTTPS)."""
+    cert_dir = SERVICE_DIR / ".certs"
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    cert_file = cert_dir / "cert.pem"
+    key_file = cert_dir / "key.pem"
+
+    if cert_file.is_file() and key_file.is_file():
+        return cert_file, key_file
+
+    san_entries = ["DNS:localhost", "IP:127.0.0.1"] + [f"IP:{ip}" for ip in lan_ips if ip]
+    san_str = ",".join(dict.fromkeys(san_entries))
+    try:
+        subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key_file),
+                "-out", str(cert_file),
+                "-days", "365",
+                "-subj", "/CN=Hey-BIS-LAN",
+                "-addext", f"subjectAltName={san_str}",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return cert_file, key_file
+    except Exception:
+        return None
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 8080,
+    https_port: int = 8443,
     weights_path: str | Path | None = None,
     wake_threshold: float = 0.60,
 ) -> None:
-    """Inicia el servidor HTTP multi-hilo en la dirección y puerto especificados."""
+    """Inicia el servidor HTTP y HTTPS multi-hilo en la dirección y puertos especificados."""
     # Verificar si existe archivo de pesos por defecto en el proyecto si no fue especificado
     actual_weights: Path | None = None
     if weights_path:
@@ -490,6 +498,7 @@ def run_server(
     HeyBISHandler.classifier = classifier
     HeyBISHandler.weights_path_str = str(actual_weights) if actual_weights else None
     HeyBISHandler.server_port = port
+    HeyBISHandler.https_port = None
     HeyBISHandler.lan_ips = lan_ips
 
     # Multi-hilo para atender varios navegadores simultáneos
@@ -500,7 +509,6 @@ def run_server(
         httpd = ThreadingHTTPServer((host, port), HeyBISHandler)
     except OSError as err:
         if "Address already in use" in str(err):
-            # Intentar puerto alternativo 8000 si 8080 está ocupado
             alt_port = 8000 if port != 8000 else 8081
             print(f"[!] Puerto {port} ocupado. Reintentando en puerto {alt_port}...")
             port = alt_port
@@ -508,6 +516,21 @@ def run_server(
             httpd = ThreadingHTTPServer((host, port), HeyBISHandler)
         else:
             raise
+
+    # Iniciar servidor HTTPS complementario en 8443 para permitir micrófono del navegador en dispositivos LAN
+    https_httpd = None
+    cert_pair = ensure_ssl_cert(lan_ips)
+    if cert_pair:
+        try:
+            https_httpd = ThreadingHTTPServer((host, https_port), HeyBISHandler)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(certfile=str(cert_pair[0]), keyfile=str(cert_pair[1]))
+            https_httpd.socket = ctx.wrap_socket(https_httpd.socket, server_side=True)
+            HeyBISHandler.https_port = https_port
+            threading.Thread(target=https_httpd.serve_forever, daemon=True).start()
+        except Exception as exc:
+            print(f"[!] Aviso: No se pudo iniciar puerto HTTPS {https_port}: {exc}")
+            https_httpd = None
 
     weights_display = str(actual_weights.name) if actual_weights else "Pesos inicializados (He/Glorot)"
 
@@ -524,7 +547,9 @@ def run_server(
     print(f"  * Umbral Activo:   {wake_threshold:.2f}")
     print(f"  * Acceso Local:    http://localhost:{port}")
     for ip in lan_ips:
-        print(f"  * Red Local (LAN): http://{ip}:{port}")
+        print(f"  * Red Local HTTP:  http://{ip}:{port}")
+        if HeyBISHandler.https_port:
+            print(f"  * Red Local HTTPS: https://{ip}:{HeyBISHandler.https_port}  <-- (Micrófono en vivo en celular/PC)")
     print("=" * 64)
     print("  Conéctate desde cualquier navegador en tu red local o móvil.")
     print("  Presiona Ctrl + C para detener el servidor.\n")
@@ -535,6 +560,8 @@ def run_server(
         print("\n[+] Deteniendo servidor Hey-BIS...")
     finally:
         httpd.server_close()
+        if https_httpd:
+            https_httpd.server_close()
         print("[+] Servidor detenido correctamente.")
 
 

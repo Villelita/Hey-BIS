@@ -15,9 +15,9 @@ if command -v unclutter &> /dev/null; then
     unclutter -idle 2 -root &
 fi
 
-# 3. Determine directory of this script
+# 3. Determine target URL served by Hey-BIS service on port 8080
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd )"
-KIOSK_URL="file://${DIR}/index.html?mode=kiosk"
+KIOSK_URL="${KIOSK_URL:-http://localhost:8080/kiosk}"
 
 # 4. Optional: If a local HTTP server is preferred:
 # cd "${DIR}" && python3 -m http.server 8000 &

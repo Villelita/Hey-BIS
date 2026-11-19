@@ -20,9 +20,20 @@ class AudioReactive {
     this.audioCtx = null;
     this.analyser = null;
     this.microphone = null;
+    this.scriptProcessor = null;
+    this.mediaStream = null;
     this.dataArray = null;
     this.animId = null;
     this.isMicActive = false;
+
+    // Neural Network Classification State (Client Mic -> Raspberry Pi /api/classify)
+    this.rollingSamples16k = new Float32Array(48000); // 3.0s @ 16kHz
+    this.rollingFilled = 0;
+    this.isClassifying = false;
+    this.isManualCapturing = false;
+    this.manualChunks = [];
+    this.lastAutoClassifyTime = 0;
+    this.lastWakeCooldownUntil = 0;
 
     // Speech Recognition State
     this.recognition = null;
@@ -95,19 +106,27 @@ class AudioReactive {
   async start() {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+          const httpsUrl = `https://${window.location.hostname}:8443${window.location.pathname}${window.location.search}`;
+          this.updateStatusBadge(false, '🔒 CLICK PARA ABRIR EN HTTPS (MIC)');
+          window.location.href = httpsUrl;
+          return false;
+        }
         console.warn('[Bis Voice] getUserMedia not available in this browser context.');
         this.updateStatusBadge(false, 'Navegador no soporta micrófono');
         return false;
       }
 
-      // Request live microphone stream
+      // Request live microphone stream from the connected client device
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
           autoGainControl: true
         }
       });
+      this.mediaStream = stream;
 
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.audioCtx = new AudioContextClass();
@@ -122,6 +141,19 @@ class AudioReactive {
 
       this.microphone = this.audioCtx.createMediaStreamSource(stream);
       this.microphone.connect(this.analyser);
+
+      // Capture raw PCM from client device microphone for Raspberry Pi Neural Network (/api/classify)
+      this.scriptProcessor = this.audioCtx.createScriptProcessor(4096, 1, 1);
+      this.scriptProcessor.onaudioprocess = (e) => {
+        if (!this.isMicActive) return;
+        const input = e.inputBuffer.getChannelData(0);
+        if (this.isManualCapturing) {
+          this.manualChunks.push(new Float32Array(input));
+        }
+        this.pushToRollingBuffer(input, this.audioCtx.sampleRate);
+      };
+      this.analyser.connect(this.scriptProcessor);
+      this.scriptProcessor.connect(this.audioCtx.destination);
 
       this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
       this.isMicActive = true;
@@ -149,6 +181,14 @@ class AudioReactive {
   stop() {
     this.isMicActive = false;
     if (this.animId) cancelAnimationFrame(this.animId);
+    if (this.scriptProcessor) {
+      try { this.scriptProcessor.disconnect(); } catch (e) {}
+      this.scriptProcessor = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(t => t.stop());
+      this.mediaStream = null;
+    }
     if (this.audioCtx && this.audioCtx.state !== 'closed') {
       this.audioCtx.close();
     }
@@ -182,6 +222,235 @@ class AudioReactive {
     // Modulate 3D Neural Core displacement in real time with voice volume
     if (this.core) {
       this.core.setAudioLevel(normalized);
+    }
+  }
+
+  // ==========================================================================
+  // NEURAL WAKE WORD PIPELINE (Client Device Mic -> Raspberry Pi /api/classify)
+  // ==========================================================================
+  resampleTo16k(samples, fromRate, toRate = 16000) {
+    if (fromRate === toRate) return samples;
+    const ratio = toRate / fromRate;
+    const outLen = Math.round(samples.length * ratio);
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const pos = i / ratio;
+      const idx = Math.floor(pos);
+      const next = Math.min(idx + 1, samples.length - 1);
+      const frac = pos - idx;
+      out[i] = samples[idx] * (1 - frac) + samples[next] * frac;
+    }
+    return out;
+  }
+
+  encodeWAV16k(samples, sampleRate = 16000) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (offset, str) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return new Blob([view], { type: 'audio/wav' });
+  }
+
+  pushToRollingBuffer(chunkNative, nativeRate) {
+    const chunk16k = this.resampleTo16k(chunkNative, nativeRate, 16000);
+    const n = chunk16k.length;
+    if (n >= 48000) {
+      this.rollingSamples16k.set(chunk16k.subarray(n - 48000));
+      this.rollingFilled = 48000;
+    } else {
+      this.rollingSamples16k.copyWithin(0, n);
+      this.rollingSamples16k.set(chunk16k, 48000 - n);
+      this.rollingFilled = Math.min(48000, this.rollingFilled + n);
+    }
+
+    // Si estamos en espera (idle), evaluar ventana de 3s en la Raspberry Pi cuando hay voz activa
+    const now = performance.now();
+    if (
+      !this.isManualCapturing &&
+      !this.isClassifying &&
+      !this.isAwake &&
+      this.rollingFilled >= 24000 &&
+      now - this.lastAutoClassifyTime > 1200 &&
+      now > this.lastWakeCooldownUntil
+    ) {
+      // Calcular RMS de los últimos 0.75s (12,000 muestras)
+      let sq = 0;
+      for (let i = 36000; i < 48000; i++) {
+        sq += this.rollingSamples16k[i] * this.rollingSamples16k[i];
+      }
+      const rms = Math.sqrt(sq / 12000);
+      if (rms >= 0.022) {
+        this.lastAutoClassifyTime = now;
+        this.classifyRollingWindow();
+      }
+    }
+  }
+
+  async classifyRollingWindow() {
+    if (this.isClassifying || this.isManualCapturing) return;
+    this.isClassifying = true;
+    try {
+      const snapshot = new Float32Array(this.rollingSamples16k);
+      const wavBlob = this.encodeWAV16k(snapshot, 16000);
+      const res = await fetch('/api/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wavBlob,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.success && (data.is_wake_word || data.label === 'wake_word')) {
+        const pct = (data.wake_word_probability * 100).toFixed(1);
+        this.lastWakeCooldownUntil = performance.now() + 3500;
+        this.playWakeChime();
+        if (this.ui) {
+          this.ui.setState('listening');
+          this.ui.setTranscript('"Hey Bis" (Red Neuronal IA)', 'user', true);
+          this.ui.updateSubtext(
+            `✨ Wake Word detectada por la IA (${pct}% confianza • ${data.inference_time_ms} ms)`
+          );
+          setTimeout(() => {
+            if (!this.accumulatedQuery) {
+              this.ui.setState('speaking');
+              this.ui.setTranscript(
+                `¡Hola! Detecté "Hey Bis" con ${pct}% de confianza en ${data.inference_time_ms} ms. ¿En qué te ayudo?`,
+                'bis',
+                true
+              );
+              this.ui.speakAudio('Hola, te escucho. ¿En qué te ayudo?');
+              setTimeout(() => this.returnToSleep(), 4000);
+            }
+          }, 1600);
+        }
+      }
+    } catch (e) {
+      // Backend busy or unreachable
+    } finally {
+      this.isClassifying = false;
+    }
+  }
+
+  async captureAndClassifyFromClientMic(durationSec = 3.0) {
+    if (this.isManualCapturing) return;
+
+    // 1. Asegurar que el micrófono del dispositivo cliente esté activo
+    if (!this.isMicActive) {
+      const ok = await this.start();
+      if (!ok) return;
+    }
+
+    this.isManualCapturing = true;
+    this.manualChunks = [];
+    const btn = document.getElementById('btn-manual-mic');
+    if (btn) btn.textContent = `🔴 Grabando (${durationSec.toFixed(0)}s)...`;
+
+    if (this.ui) {
+      this.ui.setState('listening');
+      this.ui.setTranscript('Escuchando desde tu micrófono... Di "Hey Bis"', 'user', false);
+      this.ui.updateSubtext(`🎙️ Grabando ${durationSec.toFixed(1)}s en tu dispositivo y enviando a la IA...`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, durationSec * 1000));
+    this.isManualCapturing = false;
+    if (btn) btn.textContent = '🎙️ Hablar ahora';
+
+    const totalLen = this.manualChunks.reduce((acc, c) => acc + c.length, 0);
+    if (totalLen === 0) {
+      this.returnToSleep();
+      return;
+    }
+
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const c of this.manualChunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+
+    if (this.ui) {
+      this.ui.setState('thinking');
+      this.ui.updateSubtext('Analizando espectrograma Log-Mel en la Red Neuronal...');
+    }
+
+    try {
+      const samples16k = this.resampleTo16k(merged, this.audioCtx.sampleRate, 16000);
+      const wavBlob = this.encodeWAV16k(samples16k, 16000);
+      const res = await fetch('/api/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wavBlob,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      const pWake = (data.probabilities.wake_word * 100).toFixed(1);
+      const pSpeech = (data.probabilities.other_speech * 100).toFixed(1);
+      const pBg = (data.probabilities.background * 100).toFixed(1);
+
+      if (data.is_wake_word || data.label === 'wake_word') {
+        this.playWakeChime();
+        if (this.ui) {
+          this.ui.setState('speaking');
+          const msg = `¡Hola! Wake Word "Hey Bis" confirmada por la red neuronal (${pWake}% de confianza en ${data.inference_time_ms} ms).`;
+          this.ui.setTranscript(msg, 'bis', true);
+          this.ui.speakAudio('Hola, Hey Bis detectado. Te escucho.');
+          this.ui.updateSubtext(
+            `✨ Wake Word: ${pWake}% • Otra voz: ${pSpeech}% • Fondo: ${pBg}% (${data.inference_time_ms} ms)`
+          );
+          setTimeout(() => this.returnToSleep(), 4500);
+        }
+      } else if (data.label === 'other_speech') {
+        if (this.ui) {
+          this.ui.setState('idle');
+          this.ui.setTranscript(
+            `Se detectó voz humana (${pSpeech}%), pero no la frase "Hey Bis" (${pWake}%).`,
+            'bis',
+            true
+          );
+          this.ui.updateSubtext(
+            `🗣️ Otra voz: ${pSpeech}% • Wake Word: ${pWake}% • Fondo: ${pBg}% (${data.inference_time_ms} ms)`
+          );
+        }
+      } else {
+        if (this.ui) {
+          this.ui.setState('idle');
+          this.ui.setTranscript(
+            `Ruido ambiental o silencio detectado (${pBg}%). Acércate al micrófono y di "Hey Bis".`,
+            'bis',
+            true
+          );
+          this.ui.updateSubtext(
+            `🔊 Fondo: ${pBg}% • Wake Word: ${pWake}% • Otra voz: ${pSpeech}% (${data.inference_time_ms} ms)`
+          );
+        }
+      }
+    } catch (err) {
+      if (this.ui) {
+        this.ui.setState('error');
+        this.ui.setTranscript(`Error al clasificar audio: ${err.message}`, 'bis', false);
+        setTimeout(() => this.returnToSleep(), 3000);
+      }
     }
   }
 

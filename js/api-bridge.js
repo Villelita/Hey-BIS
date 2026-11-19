@@ -12,7 +12,8 @@ class BisAPIBridge {
     this.ui = ui;
     this.core = core;
     this.ws = null;
-    this.wsUrl = 'ws://localhost:8765';
+    const defaultHost = (window.location && window.location.hostname) ? window.location.hostname : 'localhost';
+    this.wsUrl = `ws://${defaultHost}:8765`;
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 10000;
     this.reconnectTimer = null;

@@ -46,22 +46,9 @@ class AssistantUI {
     if (btn) {
       btn.addEventListener('click', async (event) => {
         event.stopPropagation();
-        if (this.state !== 'idle') return;
-
-        const { audio, bridge } = window.app;
-        const socket = bridge.ws;
-        if (socket?.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ action: 'start_listening' }));
-          return;
-        }
-
-        if (!audio.recognition) {
-          this.updateSubtext('Conecta el backend para usar el micrófono.');
-          return;
-        }
-        if ((audio.isMicActive || await audio.start()) && this.state === 'idle') {
-          audio.triggerWake('');
-        }
+        const { audio } = window.app || {};
+        if (!audio) return;
+        await audio.captureAndClassifyFromClientMic(3.0);
       });
     }
   }

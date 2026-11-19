@@ -75,8 +75,9 @@ async function initServerStatus() {
     elStatusIndicator.className = "status-pill status-online";
     elStatusText.textContent = `En línea (${data.network_access.port})`;
 
-    // Actualizar IPs para red local
-    renderLanIps(data.network_access.lan_urls, data.network_access.localhost_url);
+    // Actualizar IPs para red local (priorizando HTTPS para micrófono del dispositivo cliente)
+    const httpsUrls = data.network_access.https_lan_urls || [];
+    renderLanIps([...httpsUrls, ...data.network_access.lan_urls], data.network_access.localhost_url);
 
     // Actualizar datos de configuración
     if (data.wake_threshold) {
@@ -166,11 +167,21 @@ async function toggleRecording() {
 async function startRecording() {
   recordedSamples = [];
 
-  // Si se accede por IP de red local en HTTP (donde el navegador bloquea navigator.mediaDevices),
-  // usar automáticamente el micrófono físico del servidor (Mac / Raspberry Pi).
+  // Si se accede desde otro dispositivo en la red por HTTP plano, el navegador oculta
+  // navigator.mediaDevices por seguridad. Redirigir al puerto HTTPS (8443) del servidor
+  // para habilitar el micrófono propio del dispositivo conectado.
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    await recordViaServerMicrophone();
-    return;
+    if (window.location.protocol === "http:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      const httpsUrl = `https://${window.location.hostname}:8443${window.location.pathname}${window.location.search}`;
+      if (confirm(
+        "Para usar el micrófono de este dispositivo en la red local, el navegador exige conexión segura (HTTPS).\n\n" +
+        "¿Deseas abrir automáticamente " + httpsUrl + "?\n" +
+        "(Nota: acepta el aviso de certificado local del navegador al abrirse)."
+      )) {
+        window.location.href = httpsUrl;
+      }
+      return;
+    }
   }
 
   try {
@@ -292,41 +303,6 @@ function stopRecording() {
   // Enviar a la IA
   sendAudioToAI(wavBlob);
   elRecordStatus.textContent = "Haz clic para grabar de nuevo";
-}
-
-async function recordViaServerMicrophone() {
-  const durationSetting = elDurationSelect.value;
-  const durSec = durationSetting === "manual" ? 1.5 : parseFloat(durationSetting);
-
-  isRecording = true;
-  elBtnRecord.classList.add("recording");
-  elRecordStatus.textContent = `🎙️ Escuchando en micrófono del servidor (${durSec.toFixed(1)}s)... ¡Di "Hey BIS"!`;
-  setVerdictLoading();
-
-  try {
-    const res = await fetch("/api/record-server-mic", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ duration: durSec }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || `Error HTTP ${res.status}`);
-    }
-    if (data.audio_wav_base64) {
-      elAudioPreview.src = data.audio_wav_base64;
-      elPlaybackContainer.classList.remove("hidden");
-    }
-    displayResults(data);
-    elRecordStatus.textContent = "Haz clic para grabar de nuevo";
-  } catch (err) {
-    console.error("Error en micrófono del servidor:", err);
-    displayError(err.message);
-    elRecordStatus.textContent = "Error al grabar. Intenta de nuevo.";
-  } finally {
-    isRecording = false;
-    elBtnRecord.classList.remove("recording");
-  }
 }
 
 // Dibujo continuo de forma de onda mientras se graba
