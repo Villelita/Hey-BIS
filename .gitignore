@@ -1,6 +1,7 @@
 __pycache__/
 .venv/
-tmp/
+# Shared tmp contents are tracked; private configuration stays local.
+**/dataset.local.json
 service/dataset.local.json
 
 # Datos y grabaciones locales

@@ -1,0 +1,62 @@
+2026-11-13 21:35:13,109 [INFO] server listening on 127.0.0.1:8765
+2026-11-13 21:35:13,111 [INFO] server listening on [::1]:8765
+2026-11-13 21:35:13,112 [INFO] [Bis Backend] WebSocket server online on ws://localhost:8765
+2026-11-13 21:35:13,473 [INFO] connection open
+2026-11-13 21:35:13,474 [INFO] [Bis Backend] Kiosk UI connected from ('::1', 63219, 0, 0)
+2026-11-13 21:35:13,476 [INFO] connection open
+2026-11-13 21:35:13,477 [INFO] [Bis Backend] Kiosk UI connected from ('::1', 51562, 0, 0)
+2026-11-13 21:35:13,479 [INFO] connection closed
+2026-11-13 21:35:13,480 [INFO] [Bis Backend] Kiosk UI disconnected
+2026-11-13 21:35:14,108 [INFO] [Bis Mic] Calibrating microphone for ambient noise...
+2026-11-13 21:35:14,480 [INFO] connection open
+2026-11-13 21:35:14,481 [INFO] [Bis Backend] Kiosk UI connected from ('::1', 55757, 0, 0)
+2026-11-13 21:35:14,495 [INFO] connection open
+2026-11-13 21:35:14,496 [INFO] [Bis Backend] Kiosk UI connected from ('::1', 55758, 0, 0)
+2026-11-13 21:35:14,498 [INFO] connection closed
+2026-11-13 21:35:14,498 [INFO] [Bis Backend] Kiosk UI disconnected
+2026-11-13 21:35:15,101 [INFO] [Bis Mic] Python Microphone ONLINE. Listening for 'Hey Bis' 24/7...
+2026-11-13 21:35:15,522 [INFO] connection open
+2026-11-13 21:35:15,524 [INFO] [Bis Backend] Kiosk UI connected from ('::1', 55762, 0, 0)
+2026-11-13 21:35:15,526 [INFO] connection closed
+2026-11-13 21:35:15,527 [INFO] [Bis Backend] Kiosk UI disconnected
+2026-11-13 21:35:26,355 [INFO] connection closed
+2026-11-13 21:35:26,358 [INFO] [Bis Backend] Kiosk UI disconnected
+2026-11-13 21:35:53,090 [INFO] [Bis Mic] Listening started by wake phrase.
+2026-11-13 21:35:54,599 [INFO] [Bis Mic] Command transcribed (2 words).
+2026-11-13 21:36:46,197 [INFO] connection closed
+2026-11-13 21:36:46,198 [INFO] [Bis Backend] Kiosk UI disconnected
+2026-11-13 21:41:34,872 [ERROR] [Bis Mic] Hardware microphone stopped: [Errno -9988] Stream closed
+Traceback (most recent call last):
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\tmp\hey-bis-test\python\assistant_backend.py", line 173, in run_microphone_listener
+    audio = r.listen(source, timeout=0.25, phrase_time_limit=PHRASE_TIME_LIMIT)
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\speech_recognition\__init__.py", line 462, in listen
+    for a in result:
+             ^^^^^^
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\speech_recognition\__init__.py", line 494, in _listen
+    buffer = source.stream.read(source.CHUNK)
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\speech_recognition\__init__.py", line 193, in read
+    return self.pyaudio_stream.read(size, exception_on_overflow=False)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\pyaudio\__init__.py", line 570, in read
+    return pa.read_stream(self._stream, num_frames,
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+                          exception_on_overflow)
+                          ^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno -9999] Unanticipated host error
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\tmp\hey-bis-test\python\assistant_backend.py", line 161, in run_microphone_listener
+    with sr.Microphone(device_index=device_index) as source:
+         ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\speech_recognition\__init__.py", line 183, in __exit__
+    self.stream.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\speech_recognition\__init__.py", line 198, in close
+    if not self.pyaudio_stream.is_stopped():
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\alvar\Desktop\Programming\Hey BIS\.venv\Lib\site-packages\pyaudio\__init__.py", line 515, in is_stopped
+    return pa.is_stream_stopped(self._stream)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+OSError: [Errno -9988] Stream closed

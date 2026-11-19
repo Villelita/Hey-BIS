@@ -1,0 +1,5 @@
+{
+  "dataset_target_bytes": 10000000000,
+  "pi_ram_bytes": 4000000000,
+  "read_block_bytes": 16000000
+}

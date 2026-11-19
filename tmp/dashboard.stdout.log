@@ -1,0 +1,16 @@
+================================================================
+    HEY BIS - SERVICIO WEB DE DETECCIÓN DE WAKE WORD & AUDIO    
+================================================================
+  * Modelo:          3136 -> 64 (ReLU) -> 32 (ReLU) -> 3 (Softmax)
+  * Estado Pesos:    Pesos inicializados (He/Glorot)
+  * Umbral Activo:   0.60
+  * Acceso Local:    http://localhost:8080
+  * Red Local (LAN): http://192.168.1.6:8080
+================================================================
+  Conéctate desde cualquier navegador en tu red local o móvil.
+  Presiona Ctrl + C para detener el servidor.
+
+Carpeta de datos: C:\Users\alvar\Desktop\Programming\Dataset\Hey-BIS
+Listo. Agrega grabaciones reales y sus filas en manifest.csv.
+Carpeta de datos: C:\Users\alvar\Desktop\Programming\Dataset\Hey-BIS
+Listo. Agrega grabaciones reales y sus filas en manifest.csv.

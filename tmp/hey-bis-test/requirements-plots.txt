@@ -1,0 +1,2 @@
+# Opcional: curvas para el informe. No se necesita en la Raspberry para inferencia.
+matplotlib>=3.9,<4

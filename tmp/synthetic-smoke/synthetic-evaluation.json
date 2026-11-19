@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "split": "test",
+  "manifest_sha256": "f7ba88203bdba6ed0bfcf7587898d836713ede9a667db0774cce31a5ab643b76",
+  "dataset_sha256": "b93fb961f26ed53f6b3da85de35f434e60c4a613c6bc387a9528947469384061",
+  "model_sha256": "e1f3e5d6280b545cddfea43688e517c9980cdec70a21ca6124a861e65add1a25",
+  "threshold": 0.9900000000000001,
+  "hop_samples": 4000,
+  "cooldown_seconds": 1.0,
+  "clips_and_windows": {
+    "accuracy": 1.0,
+    "total_samples": 5,
+    "correct_predictions": 5,
+    "confusion_matrix": {
+      "background": {
+        "background": 1,
+        "other_speech": 0,
+        "wake_word": 0
+      },
+      "other_speech": {
+        "background": 0,
+        "other_speech": 2,
+        "wake_word": 0
+      },
+      "wake_word": {
+        "background": 0,
+        "other_speech": 0,
+        "wake_word": 2
+      }
+    },
+    "wake_threshold": 0.9900000000000001,
+    "true_positives": 2,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "true_negatives": 3,
+    "wake_recall": 1.0,
+    "wake_precision": 1.0
+  },
+  "wake_by_language": {
+    "es": {
+      "positive_clips": 1,
+      "detected": 1,
+      "recall": 1.0
+    },
+    "en": {
+      "positive_clips": 1,
+      "detected": 1,
+      "recall": 1.0
+    }
+  },
+  "background_test_events": {
+    "files": 1,
+    "audio_seconds": 1.0,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "events": []
+  },
+  "other_speech_test_events": {
+    "files": 2,
+    "audio_seconds": 2.0,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "events": []
+  },
+  "ordinary_talk": {
+    "files": 1,
+    "audio_seconds": 2.25,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "events": [],
+    "confirmed_without_wake_word": true
+  }
+}
