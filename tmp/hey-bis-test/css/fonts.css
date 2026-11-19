@@ -1,0 +1,11 @@
+/* Import Google Fonts (Inter & JetBrains Mono) with seamless system fallbacks */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+/* Typography fallbacks ensure instant offline rendering on Raspberry Pi OS */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Inter Light'), local('Roboto-Light'), local('Segoe UI Light'), local('DejaVu Sans Light');
+}
+

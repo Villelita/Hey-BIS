@@ -1,0 +1,9 @@
+path,label,language,speaker_id,split,consent
+audio/recorded/p01_es_wake_word_56ab90e9186e45c1b87bcfea49fcaf68.wav,wake_word,es,p01,train,yes
+audio/recorded/Alvaro_es_wake_word_b9117b13fe5a46d6999e50ef631ba75c.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_64054560f4fc403687edcfb7b5a2825b.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_8fe0663314284f579f3bbdc32e891d0e.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_2fcad2cfabfc40ed8d3baffc61aab991.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_b3e9bc0963fd4bb6bc42f92a91d9bc8a.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_f7517818c3244437b9f3a37d4ee4842f.wav,wake_word,es,Alvaro,train,yes
+audio/recorded/Alvaro_es_wake_word_68b56b3663c14da8a0eb7888df87a82c.wav,wake_word,es,Alvaro,train,yes

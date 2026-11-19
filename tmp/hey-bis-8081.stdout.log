@@ -1,0 +1,11 @@
+================================================================
+    HEY BIS - SERVICIO WEB DE DETECCIÓN DE WAKE WORD & AUDIO    
+================================================================
+  * Modelo:          9536 -> 64 -> 32 -> 3
+  * Estado Pesos:    Pendiente de modelo entrenado
+  * Acceso Local:    http://localhost:8081
+  * Red Local (LAN): http://192.168.1.6:8081
+================================================================
+  Conéctate desde cualquier navegador en tu red local o móvil.
+  Presiona Ctrl + C para detener el servidor.
+

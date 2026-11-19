@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "seed": 42,
+  "epochs": 3,
+  "batch_size": 32,
+  "learning_rate": 0.001,
+  "max_per_class_train": null,
+  "validation_fpr_target": 0.01,
+  "best_epoch": 3,
+  "model": {
+    "model_name": "HeyBIS_WakeWord_MLP",
+    "input_dimension": 3136,
+    "layers": [
+      {
+        "name": "capa_oculta_1",
+        "neurons": 64,
+        "params": 200768
+      },
+      {
+        "name": "capa_oculta_2",
+        "neurons": 32,
+        "params": 2080
+      },
+      {
+        "name": "capa_salida",
+        "neurons": 3,
+        "params": 99
+      }
+    ],
+    "total_parameters": 202947,
+    "weights_memory_bytes": 811788,
+    "weights_memory_kb": 792.76,
+    "classes": [
+      "background",
+      "other_speech",
+      "wake_word"
+    ]
+  },
+  "manifest_sha256": "f7ba88203bdba6ed0bfcf7587898d836713ede9a667db0774cce31a5ab643b76",
+  "dataset_sha256": "b93fb961f26ed53f6b3da85de35f434e60c4a613c6bc387a9528947469384061",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.9899291396141052,
+      "validation_loss": 0.903740406036377,
+      "validation_accuracy": 0.6,
+      "seconds": 0.0030457000002570567
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.6671330332756042,
+      "validation_loss": 0.010701829567551613,
+      "validation_accuracy": 1.0,
+      "seconds": 0.002916499999628286
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.008378399536013603,
+      "validation_loss": 0.0009547079098410904,
+      "validation_accuracy": 1.0,
+      "seconds": 0.002388799999607727
+    }
+  ],
+  "train_windows": 5,
+  "validation_windows": 5,
+  "train_paths": [
+    "audio/train_background_none.wav#0:16000",
+    "audio/train_other_speech_es.wav#0:16000",
+    "audio/train_other_speech_en.wav#0:16000",
+    "audio/train_wake_word_es.wav#0:16000",
+    "audio/train_wake_word_en.wav#0:16000"
+  ],
+  "validation_paths": [
+    "audio/validation_background_none.wav#0:16000",
+    "audio/validation_other_speech_es.wav#0:16000",
+    "audio/validation_other_speech_en.wav#0:16000",
+    "audio/validation_wake_word_es.wav#0:16000",
+    "audio/validation_wake_word_en.wav#0:16000"
+  ],
+  "validation": {
+    "accuracy": 1.0,
+    "total_samples": 5,
+    "correct_predictions": 5,
+    "confusion_matrix": {
+      "background": {
+        "background": 1,
+        "other_speech": 0,
+        "wake_word": 0
+      },
+      "other_speech": {
+        "background": 0,
+        "other_speech": 2,
+        "wake_word": 0
+      },
+      "wake_word": {
+        "background": 0,
+        "other_speech": 0,
+        "wake_word": 2
+      }
+    },
+    "wake_threshold": 0.9900000000000001,
+    "true_positives": 2,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "true_negatives": 3,
+    "wake_recall": 1.0,
+    "wake_precision": 1.0
+  },
+  "test_evaluated": false
+}

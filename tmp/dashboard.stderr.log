@@ -1,0 +1,12 @@
+[20:25:26] GET /api/status HTTP/1.1 - 200 -
+[20:36:08] POST /api/classify HTTP/1.1 - 200 -
+[20:36:13] POST /api/classify HTTP/1.1 - 200 -
+[20:36:16] POST /api/classify HTTP/1.1 - 200 -
+[20:36:19] POST /api/classify HTTP/1.1 - 200 -
+[20:36:22] POST /api/classify HTTP/1.1 - 200 -
+[20:36:25] POST /api/classify HTTP/1.1 - 200 -
+[20:36:39] POST /api/threshold HTTP/1.1 - 200 -
+[20:36:42] POST /api/classify HTTP/1.1 - 200 -
+[20:36:49] POST /api/threshold HTTP/1.1 - 200 -
+[20:37:19] POST /api/recordings HTTP/1.1 - 200 -
+[20:45:47] POST /api/recordings HTTP/1.1 - 200 -

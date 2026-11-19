@@ -1,11 +1,13 @@
 # Temporary workspace
 
-This folder is tracked so the team can see its purpose. Its README is included
-in Git. Temporary downloads, logs, local settings and generated files remain ignored.
+This folder contains the shared snapshot of the development workspace, including
+audio datasets, downloaded models, documents, logs and generated files.
+Git metadata and private local configuration are excluded from the snapshot.
 
 During development, `tmp/hey-bis-test` was a separate local checkout of the `test`
 branch. A normal clone of `test` places the application directly at the repository
-root. Use these shared files to run and review the recording feature:
+root. The copy included here is a snapshot. Use the application at the repository
+root to run and review the recording feature:
 
 - [Dashboard section](../service/static/index.html)
 - [Microphone recording and save controls](../service/static/dataset.js)

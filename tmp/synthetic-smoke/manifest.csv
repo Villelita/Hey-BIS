@@ -1,0 +1,16 @@
+path,label,language,speaker_id,split,consent
+audio/train_background_none.wav,background,none,p0_0_none,train,yes
+audio/train_other_speech_es.wav,other_speech,es,p0_1_es,train,yes
+audio/train_other_speech_en.wav,other_speech,en,p0_1_en,train,yes
+audio/train_wake_word_es.wav,wake_word,es,p0_2_es,train,yes
+audio/train_wake_word_en.wav,wake_word,en,p0_2_en,train,yes
+audio/validation_background_none.wav,background,none,p1_0_none,validation,yes
+audio/validation_other_speech_es.wav,other_speech,es,p1_1_es,validation,yes
+audio/validation_other_speech_en.wav,other_speech,en,p1_1_en,validation,yes
+audio/validation_wake_word_es.wav,wake_word,es,p1_2_es,validation,yes
+audio/validation_wake_word_en.wav,wake_word,en,p1_2_en,validation,yes
+audio/test_background_none.wav,background,none,p2_0_none,test,yes
+audio/test_other_speech_es.wav,other_speech,es,p2_1_es,test,yes
+audio/test_other_speech_en.wav,other_speech,en,p2_1_en,test,yes
+audio/test_wake_word_es.wav,wake_word,es,p2_2_es,test,yes
+audio/test_wake_word_en.wav,wake_word,en,p2_2_en,test,yes

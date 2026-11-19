@@ -1,0 +1,8 @@
+{
+  "synthetic_only_not_voice_accuracy": true,
+  "epochs": 3,
+  "test_examples": 5,
+  "ordinary_seconds": 2.25,
+  "loaded_model_status": "trained",
+  "curve": "C:\\Users\\alvar\\Desktop\\Programming\\Hey BIS\\tmp\\synthetic-smoke\\synthetic-loss.png"
+}
