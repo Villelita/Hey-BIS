@@ -998,3 +998,9 @@ body[data-palette="cyberpunk"][data-state="listening"] .neural-radial-glow,
 body[data-palette="cyberpunk"][data-state="speaking"] .neural-radial-glow {
   background: radial-gradient(circle, rgba(0, 255, 136, 0.24) 0%, rgba(174, 255, 0, 0.14) 45%, transparent 72%);
 }
+
+/* Keep background ultra-clean for the floating pinwheels & central 8-petal star */
+.orbit-ring-1,
+.orbit-ring-2 {
+  display: none;
+}
