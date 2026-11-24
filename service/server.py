@@ -44,6 +44,7 @@ import audio_features
 from microphone import validate_recording
 from main import FIELDS, LABELS, SPLITS, initialize
 from import_esc50 import write_csv
+from speech_transcription import transcribe_samples
 
 RECORDING_LOCK = threading.Lock()
 DATA_DIR = PROJECT_ROOT / "data"
@@ -380,6 +381,23 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path == "/api/transcribe":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 1_000_000:
+                    raise ValueError("Audio demasiado grande o vacío.")
+                raw = self.rfile.read(length)
+                with wave.open(io.BytesIO(raw), "rb") as audio:
+                    if audio.getnframes() / audio.getframerate() > 3.1:
+                        raise ValueError("La grabación debe durar hasta 3 segundos.")
+                result = transcribe_samples(decode_audio_bytes_to_16k_mono(raw))
+                self.send_json_response({"success": True, **result})
+            except (ValueError, wave.Error, EOFError) as error:
+                self.send_json_response({"error": str(error)}, status=400)
+            except Exception:
+                self.send_json_response({"error": "No se pudo transcribir el audio. Revisa la instalación del reconocedor de voz."}, status=503)
+            return
+
         if path == "/api/recordings":
             self.handle_save_recording()
             return
@@ -509,6 +527,7 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
 
             response = {
                 "success": True,
+                "weights_loaded": self.weights_path_str is not None,
                 "label": inference_result["label"],
                 "is_wake_word": inference_result["is_wake_word"],
                 "confidence": round(float(inference_result["confidence"]), 4),

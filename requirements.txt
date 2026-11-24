@@ -1,3 +1,4 @@
 # Extraccion acustica, entrenamiento, inferencia y conversion.
 numpy>=2.0,<3
 scipy>=1.14,<2
+faster-whisper>=1.2,<2

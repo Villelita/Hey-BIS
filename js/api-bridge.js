@@ -41,10 +41,10 @@ class BisAPIBridge {
       },
 
       // Assistant speaks response
-      speak: (text) => {
+      speak: (text, language) => {
         this.ui.setState('speaking');
         this.ui.setTranscript(text, 'bis', true);
-        this.ui.speakAudio(text);
+        this.ui.speakAudio(text, language);
         this.emit('speak', { text });
       },
 
@@ -161,7 +161,7 @@ class BisAPIBridge {
 
         case 'speak':
         case 'reply':
-          window.Bis.speak(msg.text || msg.reply);
+          window.Bis.speak(msg.text || msg.reply, msg.language);
           break;
 
         case 'audio_level':

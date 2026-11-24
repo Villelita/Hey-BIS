@@ -23,8 +23,12 @@ import re
 import threading
 import time
 import unicodedata
+import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from speech_transcription import transcribe_samples
 
 try:
     import websockets
@@ -83,9 +87,9 @@ async def user_spoke(text: str):
     """Send transcribed speech from the user"""
     await broadcast({"action": "user_speech", "text": text})
 
-async def bis_reply(text: str):
+async def bis_reply(text: str, language: str = "es-MX"):
     """Send spoken response from Bis"""
-    await broadcast({"action": "speak", "text": text})
+    await broadcast({"action": "speak", "text": text, "language": language})
 
 async def set_audio_level(level: float):
     """Set dynamic audio meter (0.0 to 1.0)"""
@@ -119,16 +123,24 @@ def capture_command(recognizer, source, transcribe):
     return ""
 
 
-def answer_command(command):
+def answer_command(command, language=None):
     normalized = unicodedata.normalize("NFKD", command.casefold())
     query = "".join(char for char in normalized if not unicodedata.combining(char))
+    if language is None:
+        language = "en-US" if re.search(r"\b(what|when|how|hello|please|time|today|date|weather|thanks)\b", query) else "es-MX"
+    english = language == "en-US"
     now = datetime.now()
     if re.search(r"\b(que hora|dime la hora|what time)\b", query):
-        return f"Son las {now:%H:%M}."
-    if re.search(r"\b(que dia|que fecha|dime la fecha|what day)\b", query):
+        return f"It's {now:%I:%M %p}." if english else f"Son las {now:%H:%M}."
+    if re.search(r"\b(que dia|que fecha|dime la fecha|what day|what date|today)\b", query):
         months = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+        if english:
+            english_months = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+            return f"Today is {english_months[now.month - 1]} {now.day}, {now.year}."
         return f"Hoy es {now.day} de {months[now.month - 1]} de {now.year}."
-    return f"Escuché: {command}."
+    if re.search(r"\b(hola|hello|how are you|como estas)\b", query):
+        return "Hi! How can I help you?" if english else "¡Hola! ¿En qué te puedo ayudar?"
+    return f"I heard: {command}." if english else f"Escuché: {command}."
 
 
 # ==============================================================================
@@ -145,6 +157,7 @@ def run_microphone_listener(model_path=None, device_index=None):
         r = sr.Recognizer()
         r.energy_threshold = 300
         r.dynamic_energy_threshold = True
+        speech_language = "es-MX"
         if model_path is not None:
             from vosk import KaldiRecognizer, Model, SetLogLevel
 
@@ -162,7 +175,12 @@ def run_microphone_listener(model_path=None, device_index=None):
                 return " ".join(segment for segment in segments if segment)
         else:
             def transcribe(audio):
-                return r.recognize_google(audio, language="es-MX")
+                nonlocal speech_language
+                import numpy as np
+                pcm = audio.get_raw_data(convert_rate=16000, convert_width=2)
+                result = transcribe_samples(np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768)
+                speech_language = result["language"]
+                return result["text"]
 
         with sr.Microphone(device_index=device_index) as source:
             logging.info("[Bis Mic] Calibrating microphone for ambient noise...")
@@ -209,9 +227,9 @@ def run_microphone_listener(model_path=None, device_index=None):
                     time.sleep(1.2)
                     thread_safe_broadcast(set_state("thinking", "Procesando comando..."))
                     time.sleep(0.5)
-                    reply = answer_command(command)
+                    reply = answer_command(command, speech_language)
                     thread_safe_broadcast(set_state("speaking", "Respuesta activa"))
-                    thread_safe_broadcast(bis_reply(reply))
+                    thread_safe_broadcast(bis_reply(reply, speech_language))
                     time.sleep(max(2, len(reply) * 0.065))
                 except sr.RequestError as e:
                     logging.warning("[Bis Mic] Recognition service error: %s", e)

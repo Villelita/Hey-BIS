@@ -35,6 +35,8 @@ class AudioReactive {
     this.manualTranscript = '';
     this.lastAutoClassifyTime = 0;
     this.lastWakeCooldownUntil = 0;
+    this.speechStartedAt = 0;
+    this.lastSpeechAt = 0;
 
     // Speech Recognition State
     this.recognition = null;
@@ -50,7 +52,6 @@ class AudioReactive {
     this.hudSubtext = document.getElementById('hud-subtext');
     this.micPromptBanner = document.getElementById('mic-prompt-banner');
 
-    this.initSpeechRecognition();
     this.initTriggers();
   }
 
@@ -123,8 +124,8 @@ class AudioReactive {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
+          echoCancellation: true,
+          noiseSuppression: true,
           autoGainControl: true
         }
       });
@@ -163,8 +164,7 @@ class AudioReactive {
       // Start volume processing loop
       this.processAudio();
 
-      // Start continuous speech recognition for "Hey Bis"
-      this.startRecognition();
+      // Wake detection and commands use the same local multilingual transcriber.
 
       this.updateStatusBadge(true, '🟢 MIC ON // ATENTO A "HEY BIS"');
       if (this.micPromptBanner) {
@@ -182,6 +182,8 @@ class AudioReactive {
 
   stop() {
     this.isMicActive = false;
+    this.speechStartedAt = 0;
+    this.lastSpeechAt = 0;
     if (this.animId) cancelAnimationFrame(this.animId);
     if (this.scriptProcessor) {
       try { this.scriptProcessor.disconnect(); } catch (e) {}
@@ -284,43 +286,52 @@ class AudioReactive {
       this.rollingFilled = Math.min(48000, this.rollingFilled + n);
     }
 
-    // Si estamos en espera (idle), evaluar ventana de 3s en la Raspberry Pi cuando hay voz activa
     const now = performance.now();
-    if (
-      !this.isManualCapturing &&
-      !this.isClassifying &&
-      !this.isAwake &&
-      this.rollingFilled >= 24000 &&
-      now - this.lastAutoClassifyTime > 1200 &&
-      now > this.lastWakeCooldownUntil
-    ) {
-      // Calcular RMS de los últimos 0.75s (12,000 muestras)
-      let sq = 0;
-      for (let i = 36000; i < 48000; i++) {
-        sq += this.rollingSamples16k[i] * this.rollingSamples16k[i];
-      }
-      const rms = Math.sqrt(sq / 12000);
-      if (rms >= 0.022) {
-        this.lastAutoClassifyTime = now;
-        this.classifyRollingWindow();
-      }
+    if (this.isManualCapturing || this.isClassifying || !['idle', 'listening'].includes(this.ui.state)) {
+      this.speechStartedAt = 0;
+      this.lastSpeechAt = 0;
+      return;
+    }
+    let energy = 0;
+    for (const sample of chunk16k) energy += sample * sample;
+    if (n && Math.sqrt(energy / n) >= 0.008) {
+      if (!this.speechStartedAt) this.speechStartedAt = now;
+      this.lastSpeechAt = now;
+    }
+    // Wait for a short pause, or the three-second window limit, before decoding.
+    if (this.speechStartedAt && (now - this.lastSpeechAt >= 350 || now - this.speechStartedAt >= 2700)) {
+      this.speechStartedAt = 0;
+      this.lastSpeechAt = 0;
+      this.classifyRollingWindow();
     }
   }
 
   async classifyRollingWindow() {
-    if (this.isClassifying || this.isManualCapturing) return;
+    if (this.isClassifying || this.isManualCapturing || !['idle', 'listening'].includes(this.ui.state)) return;
     this.isClassifying = true;
+    const wasAwake = this.isAwake;
+    if (wasAwake && this.silenceTimer) clearTimeout(this.silenceTimer);
     try {
       const snapshot = new Float32Array(this.rollingSamples16k);
       const wavBlob = this.encodeWAV16k(snapshot, 16000);
-      const res = await fetch('/api/classify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: wavBlob,
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data && data.success && (data.is_wake_word || data.label === 'wake_word')) {
+      const [res, transcription] = await Promise.all([
+        fetch('/api/classify', {
+          method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wavBlob
+        }),
+        this.transcribeClip(wavBlob)
+      ]);
+      if (!this.isMicActive || this.isManualCapturing || !['idle', 'listening'].includes(this.ui.state)) return;
+      const data = res.ok ? await res.json() : null;
+      const text = transcription.text;
+      const wakePatterns = this.getWakePatterns();
+      const hasWakeWord = wakePatterns.some(pattern => pattern.test(text));
+      if (text && (this.isAwake || hasWakeWord)) {
+        let command = text;
+        wakePatterns.forEach(pattern => { command = command.replace(pattern, '').trim(); });
+        command = command.replace(/^[\s,.!?¿¡]+|[\s,.!?¿¡]+$/g, '');
+        if (!this.isAwake) this.triggerWake(text);
+        if (command) await this.processUserCommand(command, transcription.language);
+      } else if (!this.isAwake && data?.weights_loaded && (data.is_wake_word || data.label === 'wake_word')) {
         const pct = (data.wake_word_probability * 100).toFixed(1);
         this.lastWakeCooldownUntil = performance.now() + 3500;
         this.triggerWake('Hey Bis', {
@@ -328,9 +339,12 @@ class AudioReactive {
           confidencePct: pct,
           latencyMs: data.inference_time_ms,
         });
+      } else if (wasAwake) {
+        this.returnToSleep();
       }
     } catch (e) {
-      // Backend busy or unreachable
+      if (wasAwake) this.returnToSleep();
+      this.ui.updateSubtext(`No pude procesar el audio: ${this.escapeHtml(e.message)}`);
     } finally {
       this.isClassifying = false;
     }
@@ -382,6 +396,8 @@ class AudioReactive {
     try {
       const samples16k = this.resampleTo16k(merged, this.audioCtx.sampleRate, 16000);
       const wavBlob = this.encodeWAV16k(samples16k, 16000);
+      const transcription = await this.transcribeClip(wavBlob);
+      this.manualTranscript = transcription.text;
       const res = await fetch('/api/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'audio/wav' },
@@ -393,6 +409,13 @@ class AudioReactive {
       }
 
       const wakePatterns = this.getWakePatterns();
+      let command = this.manualTranscript;
+      wakePatterns.forEach(pattern => { command = command.replace(pattern, '').trim(); });
+      command = command.replace(/^[\s,.!?¿¡]+|[\s,.!?¿¡]+$/g, '');
+      if (command) {
+        await this.processUserCommand(command, transcription.language);
+        return;
+      }
       const matchedPhonetic = this.manualTranscript && wakePatterns.some(p => p.test(this.manualTranscript));
       const isWakeDetected = Boolean(data.is_wake_word || data.label === 'wake_word' || matchedPhonetic);
 
@@ -405,12 +428,13 @@ class AudioReactive {
 
       if (isWakeDetected) {
         this.playWakeChime();
-        const normalizedPhrase = this.normalizeWakeTranscript(this.manualTranscript || 'Hey Bis');
         if (this.ui) {
           this.ui.setState('speaking');
-          const msg = `¡Hola! Llamado "${normalizedPhrase}" detectado (${pWake}% de confianza en ${data.inference_time_ms} ms). ¿En qué puedo ayudarte?`;
+          const msg = transcription.language === 'en-US'
+            ? 'Hi! I’m listening. How can I help you?'
+            : '¡Hola! Te escucho. ¿En qué te puedo ayudar?';
           this.ui.setTranscript(msg, 'bis', true);
-          this.ui.speakAudio('Hola, te escucho. ¿En qué puedo ayudarte?');
+          this.ui.speakAudio(msg, transcription.language);
           this.ui.updateSubtext(
             `✨ Wake Word: ${pWake}% • Otra voz: ${pSpeech}% • Fondo: ${pBg}% (${data.inference_time_ms} ms)`
           );
@@ -661,7 +685,22 @@ class AudioReactive {
     }
   }
 
-  async processUserCommand(query) {
+  async transcribeClip(blob) {
+    const response = await fetch('/api/transcribe', {
+      method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: blob
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'No se pudo transcribir el audio.');
+    return result;
+  }
+
+  detectLanguage(text) {
+    const english = /\b(what|when|where|how|hello|please|time|weather|today|music|play|thanks|thank|your|you|date|system|status|timer|calculate|plus|minus|divided|times)\b/gi;
+    const spanish = /\b(que|qué|cuando|cuándo|donde|dónde|como|cómo|hola|hora|clima|hoy|musica|música|gracias|fecha|sistema|estado|cuanto|cuánto|mas|más|menos|entre)\b/gi;
+    return (text.match(english) || []).length > (text.match(spanish) || []).length ? 'en-US' : 'es-MX';
+  }
+
+  async processUserCommand(query, language = null) {
     if (!query) {
       this.returnToSleep();
       return;
@@ -676,14 +715,32 @@ class AudioReactive {
       this.ui.updateSubtext('Procesando respuesta neuronal...');
     }
 
+    try {
+      if (!language && this.rollingFilled > 0) {
+        const snapshot = new Float32Array(this.rollingSamples16k);
+        const result = await this.transcribeClip(this.encodeWAV16k(snapshot, 16000));
+        if (result.text) {
+          query = result.text;
+          this.getWakePatterns().forEach(pattern => { query = query.replace(pattern, '').trim(); });
+          language = result.language;
+        }
+      }
+    } catch (error) {
+      this.ui.setState('error');
+      this.ui.setTranscript(error.message, 'bis', false);
+      setTimeout(() => this.returnToSleep(), 3000);
+      return;
+    }
+    language = language || this.detectLanguage(query);
+    this.ui.setTranscript(query, 'user', false);
     // 2. Generate Intelligent Local Response
-    const reply = await this.generateResponse(query);
+    const reply = await this.generateResponse(query, language);
 
     // 3. Switch to Speaking state
     if (this.ui) {
       this.ui.setState('speaking');
       this.ui.setTranscript(reply, 'bis', true);
-      this.ui.speakAudio(reply);
+      this.ui.speakAudio(reply, language);
       this.ui.updateSubtext(`✨ ${this.escapeHtml(reply)}`);
     }
 
@@ -708,58 +765,59 @@ class AudioReactive {
   // ==========================================================================
   // NATURAL LOCAL INTELLIGENCE ENGINE (Instant answers without delay)
   // ==========================================================================
-  async generateResponse(query) {
-    const q = query.toLowerCase();
+  async generateResponse(query, language = this.detectLanguage(query)) {
+    const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const english = language === 'en-US';
     const now = new Date();
 
     // Time query
     if (q.includes('hora') || q.includes('time')) {
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      return `Son las ${timeStr}.`;
+      const timeStr = now.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' });
+      return english ? `It's ${timeStr}.` : `Son las ${timeStr}.`;
     }
 
     // Date query
-    if (q.includes('fecha') || q.includes('día') || q.includes('date') || q.includes('day')) {
+    if (q.includes('fecha') || q.includes('dia') || q.includes('date') || q.includes('day')) {
       const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-      return `Hoy es ${now.toLocaleDateString('es-ES', options)}.`;
+      return english ? `Today is ${now.toLocaleDateString(language, options)}.` : `Hoy es ${now.toLocaleDateString('es-MX', options)}.`;
     }
 
     // Weather query
     if (q.includes('clima') || q.includes('tiempo') || q.includes('weather') || q.includes('temperatura')) {
-      return `El clima actual reporta 22 grados con cielo despejado y condiciones óptimas.`;
+      return english ? 'I need a weather service connection to check the current weather.' : 'Necesito conectarme a un servicio del clima para consultar el tiempo actual.';
     }
 
     // System diagnostics
-    if (q.includes('sistema') || q.includes('estado') || q.includes('diagnostico') || q.includes('status')) {
-      return `Todos los núcleos neuronales de Bis operan al cien por ciento a sesenta cuadros por segundo.`;
+    if (q.includes('sistema') || q.includes('estado') || q.includes('diagnostico') || q.includes('status') || q.includes('diagnostic') || q.includes('system')) {
+      return english ? 'I’m running and receiving your voice. The dashboard shows the model status.' : 'Estoy activo y recibo tu voz. Puedes consultar el estado del modelo en el dashboard.';
     }
 
     // Greetings
-    if (q.includes('hola') || q.includes('cómo estás') || q.includes('hello') || q.includes('how are you')) {
-      return `¡Hola! Aquí estoy, totalmente atento y escuchándote en tiempo real.`;
+    if (q.includes('hola') || q.includes('como estas') || q.includes('hello') || q.includes('how are you')) {
+      return english ? 'Hi! I’m listening. How can I help you?' : '¡Hola! Aquí estoy. ¿En qué te puedo ayudar?';
     }
 
     // Music
-    if (q.includes('musica') || q.includes('música') || q.includes('play') || q.includes('canción')) {
-      return `Sintonizando frecuencia ambiental cyberpunk en canal de audio primario.`;
+    if (q.includes('musica') || q.includes('music') || q.includes('play') || q.includes('cancion')) {
+      return english ? 'Music playback has not been connected yet.' : 'La reproducción de música todavía está pendiente de conectar.';
     }
 
     // Calculations / Math
-    const mathMatch = q.match(/cuanto es (\d+)\s*([\+\-\*\/]|mas|menos|por|entre)\s*(\d+)/i);
+    const mathMatch = q.match(/(?:cuanto es|what is|what's|calculate)\s+(\d+)\s*([\+\-\*\/]|mas|menos|por|entre|plus|minus|times|divided by)\s*(\d+)/i);
     if (mathMatch) {
       const n1 = parseFloat(mathMatch[1]);
       const op = mathMatch[2];
       const n2 = parseFloat(mathMatch[3]);
       let res = 0;
-      if (op === '+' || op === 'mas') res = n1 + n2;
-      else if (op === '-' || op === 'menos') res = n1 - n2;
-      else if (op === '*' || op === 'por') res = n1 * n2;
-      else if (op === '/' || op === 'entre') res = n2 !== 0 ? (n1 / n2) : 'indefinido';
-      return `El resultado es ${res}.`;
+      if (['+', 'mas', 'plus'].includes(op)) res = n1 + n2;
+      else if (['-', 'menos', 'minus'].includes(op)) res = n1 - n2;
+      else if (['*', 'por', 'times'].includes(op)) res = n1 * n2;
+      else res = n2 !== 0 ? (n1 / n2) : (english ? 'undefined' : 'indefinido');
+      return english ? `The result is ${res}.` : `El resultado es ${res}.`;
     }
 
     // Default conversational response
-    return `Entendido: "${query}". El núcleo neuronal procesó tu instrucción correctamente.`;
+    return english ? `I heard: "${query}". I don't have an answer for that request yet.` : `Escuché: "${query}". Todavía no tengo una respuesta para esa petición.`;
   }
 
   // ==========================================================================

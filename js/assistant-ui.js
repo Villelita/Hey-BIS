@@ -113,18 +113,19 @@ class AssistantUI {
   // ==========================================================================
   // SPEECH SYNTHESIS HELPER (Optional local browser audio)
   // ==========================================================================
-  speakAudio(text) {
+  speakAudio(text, language = null) {
     if (!('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      const isEnglish = /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
+      const isEnglish = language ? language.startsWith('en') : /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
       utterance.lang = isEnglish ? 'en-US' : 'es-MX';
       utterance.rate = 1.03;
       utterance.pitch = 0.98;
       const voices = window.speechSynthesis.getVoices();
       const targetPrefix = isEnglish ? 'en' : 'es';
       const preferred =
+        voices.find(v => v.lang.toLowerCase() === utterance.lang.toLowerCase()) ||
         voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Paulina') || v.name.includes('Mónica') || v.name.includes('Samantha'))) ||
         voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix));
       if (preferred) utterance.voice = preferred;

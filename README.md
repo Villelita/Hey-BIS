@@ -164,7 +164,32 @@ pip install -r python/requirements.txt
 python3 python/assistant_backend.py
 ```
 
-For offline voice testing, install `vosk` and download the small Spanish model from the
+### English and Mexican Spanish
+
+Install the application requirements and start the dashboard as usual. The kiosk
+transcribes recorded commands locally with the multilingual Whisper base model,
+detects English or Spanish, and responds using `en-US` or `es-MX` respectively.
+The first transcription downloads the model into the Git-ignored `output/whisper/`
+cache and requires Internet access. Subsequent recordings are processed locally.
+
+Use **Hablar ahora**, wait for the recording prompt, then ask a short question in
+either language, such as “What time is it?” or “¿Qué hora es?”. Clips remain limited
+to three seconds. Automatic wake activation also uses local transcription. The
+microphone waits for a short pause, checks for “Hey Bis” or “Hola Bis”, then listens
+for the next command in either language. Audio is transcribed through the same
+local endpoint in both the automatic and manual flows. While model weights are
+unavailable, untrained classifier probabilities do not trigger automatic activation.
+
+Speech output prefers an installed voice matching `es-MX` or `en-US`. If an exact
+voice is unavailable, the browser uses another voice in that language. Install a
+Mexican Spanish voice on the device for a Mexican accent. Supported local replies
+include time, date, greetings and basic arithmetic. Other requests receive a
+same-language acknowledgment and a message that an answer is not available yet.
+
+The standalone Python listener also uses multilingual transcription by default.
+The optional Vosk mode below uses the language of the supplied Vosk model.
+
+For Spanish-only offline voice testing, install `vosk` and download the small Spanish model from the
 [Vosk model list](https://alphacephei.com/vosk/models). Extract it and pass its directory to the backend.
 
 ```bash
