@@ -37,6 +37,8 @@ class AudioReactive {
     this.lastWakeCooldownUntil = 0;
     this.speechStartedAt = 0;
     this.lastSpeechAt = 0;
+    this.isAssistantSpeaking = false;
+    this.ignoreInputUntil = 0;
 
     // Speech Recognition State
     this.recognition = null;
@@ -186,6 +188,8 @@ class AudioReactive {
     this.isMicActive = false;
     this.speechStartedAt = 0;
     this.lastSpeechAt = 0;
+    this.isAssistantSpeaking = false;
+    this.ignoreInputUntil = 0;
     if (this.animId) cancelAnimationFrame(this.animId);
     if (this.scriptProcessor) {
       try { this.scriptProcessor.disconnect(); } catch (e) {}
@@ -289,7 +293,14 @@ class AudioReactive {
     }
 
     const now = performance.now();
-    if (this.isManualCapturing || this.isClassifying || !['idle', 'listening'].includes(this.ui.state)) {
+    // Ignorar completamente el audio del micrófono mientras Bis está hablando o en enfriamiento anti-eco
+    if (
+      this.isAssistantSpeaking ||
+      now < this.ignoreInputUntil ||
+      this.isManualCapturing ||
+      this.isClassifying ||
+      !['idle', 'listening'].includes(this.ui.state)
+    ) {
       this.speechStartedAt = 0;
       this.lastSpeechAt = 0;
       return;
@@ -513,11 +524,13 @@ class AudioReactive {
 
     this.recognition.onend = () => {
       this.isRecognizing = false;
-      // Immediately restart to ensure 24/7 continuous listening!
-      if (this.isMicActive) {
+      // Only auto-restart when mic is active AND Bis is NOT currently speaking (prevents self-hearing loop)
+      if (this.isMicActive && !this.isAssistantSpeaking) {
         setTimeout(() => {
-          this.startRecognition();
-        }, 150);
+          if (this.isMicActive && !this.isAssistantSpeaking) {
+            this.startRecognition();
+          }
+        }, 180);
       }
     };
   }
@@ -576,6 +589,16 @@ class AudioReactive {
   }
 
   handleSpeechResult(event) {
+    // Bloquear cualquier eco mientras Bis está pensando, hablando o recién terminó de hablar
+    if (
+      this.isAssistantSpeaking ||
+      performance.now() < this.ignoreInputUntil ||
+      this.ui?.state === 'speaking' ||
+      this.ui?.state === 'thinking'
+    ) {
+      return;
+    }
+
     let interimTranscript = '';
     let finalTranscript = '';
     let allAlternativesText = '';
@@ -728,19 +751,45 @@ class AudioReactive {
     // 2. Generate Intelligent Local Response
     const reply = await this.generateResponse(query, language);
 
-    // 3. Switch to Speaking state
+    // 3. Switch to Speaking state and mute mic recognition until speech finishes (prevents echo loop)
+    this.isAssistantSpeaking = true;
+    this.stopRecognition();
+    this.rollingSamples16k.fill(0);
+    this.rollingFilled = 0;
+
+    let resumed = false;
+    const finishSpeaking = () => {
+      if (resumed) return;
+      resumed = true;
+      this.isAssistantSpeaking = false;
+      // 900ms post-speech acoustic echo guard
+      this.ignoreInputUntil = performance.now() + 900;
+      this.rollingSamples16k.fill(0);
+      this.rollingFilled = 0;
+      this.returnToSleep();
+      setTimeout(() => {
+        if (this.isMicActive && !this.isAssistantSpeaking) {
+          this.startRecognition();
+        }
+      }, 950);
+    };
+
+    // Safety ceiling in case browser never fires onend
+    const maxSpeechMs = Math.max(4000, reply.length * 85 + 2000);
+    const safetyTimer = setTimeout(finishSpeaking, maxSpeechMs);
+
     if (this.ui) {
       this.ui.setState('speaking');
       this.ui.setTranscript(reply, 'bis', true);
-      this.ui.speakAudio(reply, language);
       this.ui.updateSubtext(`✨ ${this.escapeHtml(reply)}`);
+      this.ui.speakAudio(reply, language, () => {
+        clearTimeout(safetyTimer);
+        finishSpeaking();
+      });
+    } else {
+      clearTimeout(safetyTimer);
+      finishSpeaking();
     }
-
-    // 4. Return to standby when speech completes and keep listening for "Hey Bis"
-    const estimatedSpeechDuration = Math.max(3000, reply.length * 65);
-    setTimeout(() => {
-      this.returnToSleep();
-    }, estimatedSpeechDuration);
   }
 
   returnToSleep() {

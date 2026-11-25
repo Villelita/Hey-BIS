@@ -164,14 +164,23 @@ class AssistantUI {
   // ==========================================================================
   // SPEECH SYNTHESIS HELPER (Mobile-safe Web Speech + Server /api/tts fallback)
   // ==========================================================================
-  async playServerTTS(text, language) {
+  async playServerTTS(text, language, onEnd = null) {
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      if (onEnd) onEnd();
+    };
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, language: language || 'es-MX' }),
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        done();
+        return false;
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
@@ -185,6 +194,7 @@ class AssistantUI {
           const src = audioCtx.createBufferSource();
           src.buffer = decoded;
           src.connect(audioCtx.destination);
+          src.onended = () => done();
           src.start(0);
           URL.revokeObjectURL(url);
           return true;
@@ -195,27 +205,42 @@ class AssistantUI {
         this.ttsAudioElement.pause();
         this.ttsAudioElement.src = url;
         this.ttsAudioElement.volume = 1.0;
-        this.ttsAudioElement.onended = () => URL.revokeObjectURL(url);
+        this.ttsAudioElement.onended = () => {
+          URL.revokeObjectURL(url);
+          done();
+        };
+        this.ttsAudioElement.onerror = () => {
+          URL.revokeObjectURL(url);
+          done();
+        };
         await this.ttsAudioElement.play();
         return true;
       }
     } catch (e) {
       console.warn('[Bis Audio] Fallback /api/tts error:', e);
     }
+    done();
     return false;
   }
 
-  speakAudio(text, language = null) {
-    if (!text) return;
+  speakAudio(text, language = null, onEnd = null) {
+    if (!text) {
+      if (onEnd) onEnd();
+      return;
+    }
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      if (onEnd) onEnd();
+    };
     const isEnglish = language
       ? language.startsWith('en')
       : /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
     const targetLang = isEnglish ? 'en-US' : 'es-MX';
 
-    // On mobile devices, try server WAV TTS directly through the unlocked AudioContext/Audio element
-    // if SpeechSynthesis fails to start within 500ms.
     if (!('speechSynthesis' in window)) {
-      this.playServerTTS(text, targetLang);
+      this.playServerTTS(text, targetLang, done);
       return;
     }
 
@@ -253,7 +278,7 @@ class AssistantUI {
       const fallbackTimer = setTimeout(() => {
         if (!started) {
           try { window.speechSynthesis.cancel(); } catch (e) {}
-          this.playServerTTS(text, targetLang);
+          this.playServerTTS(text, targetLang, done);
         }
       }, 1400);
 
@@ -261,11 +286,17 @@ class AssistantUI {
         started = true;
         clearTimeout(fallbackTimer);
       };
+      utterance.onend = () => {
+        clearTimeout(fallbackTimer);
+        done();
+      };
       utterance.onerror = () => {
         if (!started) {
           started = true;
           clearTimeout(fallbackTimer);
-          this.playServerTTS(text, targetLang);
+          this.playServerTTS(text, targetLang, done);
+        } else {
+          done();
         }
       };
 
@@ -274,7 +305,7 @@ class AssistantUI {
         window.speechSynthesis.speak(utterance);
       }, wasSpeaking ? 80 : 0);
     } catch (e) {
-      this.playServerTTS(text, targetLang);
+      this.playServerTTS(text, targetLang, done);
     }
   }
 
