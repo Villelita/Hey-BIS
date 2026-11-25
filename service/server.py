@@ -49,6 +49,23 @@ from service.qr_generator import build_qr_page_html, generate_qr_svg
 
 RECORDING_LOCK = threading.Lock()
 DATA_DIR = PROJECT_ROOT / "data"
+_TTS_CACHE: Dict[Tuple[str, str], Tuple[str, bytes]] = {}
+
+
+def _find_edge_tts_cmd() -> List[str] | None:
+    """Detecta edge-tts tanto en el .venv actual (systemd) como en el PATH global."""
+    import importlib.util
+    import shutil
+
+    venv_bin = Path(sys.executable).resolve().parent / "edge-tts"
+    if venv_bin.is_file():
+        return [str(venv_bin)]
+    global_bin = shutil.which("edge-tts")
+    if global_bin:
+        return [global_bin]
+    if importlib.util.find_spec("edge_tts") is not None:
+        return [sys.executable, "-m", "edge_tts"]
+    return None
 
 
 class AudioNoiseClassifier(BaseAudioNoiseClassifier):
@@ -299,6 +316,7 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 "wake_threshold": self.classifier.wake_threshold,
                 "weights_path": self.weights_path_str or "Inicializado (sin archivo externo)",
                 "weights_loaded": self.weights_path_str is not None,
+                "neural_tts": _find_edge_tts_cmd() is not None,
                 "dataset_directory": str(DATA_DIR),
                 "network_architecture": {
                     "input_features": in_dim,
@@ -453,7 +471,7 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
         self.send_json_response({"error": f"Endpoint desconocido: {path}"}, status=404)
 
     def handle_tts(self) -> None:
-        """Sintetiza respuesta de voz en WAV para dispositivos móviles donde Web SpeechSynthesis falla."""
+        """Sintetiza respuesta de voz (prioriza edge-tts neural, luego say / espeak-ng) con caché en memoria."""
         import shutil
         import tempfile
 
@@ -468,52 +486,84 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 raise ValueError("Texto vacío.")
 
             is_english = language.lower().startswith("en")
-            use_edge_tts = shutil.which("edge-tts") is not None
-            suffix = ".mp3" if use_edge_tts else ".wav"
-            content_type = "audio/mpeg" if use_edge_tts else "audio/wav"
+            cache_key = ("en" if is_english else "es", text)
+            cached = _TTS_CACHE.get(cache_key)
+            if cached is not None:
+                content_type, audio_bytes = cached
+                self.send_response(HTTPStatus.OK)
+                self.send_cors_headers()
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(audio_bytes)))
+                self.send_header("X-TTS-Cache", "hit")
+                self.end_headers()
+                self.wfile.write(audio_bytes)
+                return
 
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp_path = Path(tmp.name)
+            edge_cmd = _find_edge_tts_cmd()
+            audio_bytes: bytes | None = None
+            content_type = "audio/wav"
 
-            try:
-                if use_edge_tts:
+            # 1. Voz neural natural con edge-tts (funciona en .venv / systemd)
+            if edge_cmd:
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                    tmp_mp3 = Path(tmp.name)
+                try:
                     voice = "en-US-JennyNeural" if is_english else "es-MX-DaliaNeural"
                     subprocess.run(
-                        ["edge-tts", "--voice", voice, "--text", text, "--write-media", str(tmp_path)],
+                        [*edge_cmd, "--voice", voice, "--text", text, "--write-media", str(tmp_mp3)],
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         timeout=8,
                     )
-                elif shutil.which("say"):
-                    voice = "Samantha" if is_english else "Paulina"
-                    subprocess.run(
-                        ["say", "-v", voice, "-o", str(tmp_path), "--data-format=LEI16@22050", text],
-                        check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                elif shutil.which("espeak-ng") or shutil.which("espeak"):
-                    cmd = shutil.which("espeak-ng") or shutil.which("espeak")
-                    voice = "en-us+f3" if is_english else "es-419+f3"
-                    subprocess.run(
-                        [cmd, "-v", voice, "-s", "150", "-p", "52", "-w", str(tmp_path), text],
-                        check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                else:
-                    raise RuntimeError("No hay sintetizador de voz disponible en el servidor.")
+                    data = tmp_mp3.read_bytes()
+                    if len(data) > 100:
+                        audio_bytes = data
+                        content_type = "audio/mpeg"
+                except Exception:
+                    audio_bytes = None
+                finally:
+                    tmp_mp3.unlink(missing_ok=True)
 
-                audio_bytes = tmp_path.read_bytes()
-                self.send_response(HTTPStatus.OK)
-                self.send_cors_headers()
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(audio_bytes)))
-                self.end_headers()
-                self.wfile.write(audio_bytes)
-            finally:
-                tmp_path.unlink(missing_ok=True)
+            # 2. Respaldo local (macOS say o Linux espeak-ng)
+            if audio_bytes is None:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    tmp_wav = Path(tmp.name)
+                try:
+                    if shutil.which("say"):
+                        voice = "Samantha" if is_english else "Paulina"
+                        subprocess.run(
+                            ["say", "-v", voice, "-o", str(tmp_wav), "--data-format=LEI16@22050", text],
+                            check=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    elif shutil.which("espeak-ng") or shutil.which("espeak"):
+                        cmd = shutil.which("espeak-ng") or shutil.which("espeak")
+                        voice = "en-us+f3" if is_english else "es-419+f3"
+                        subprocess.run(
+                            [cmd, "-v", voice, "-s", "150", "-p", "52", "-w", str(tmp_wav), text],
+                            check=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        raise RuntimeError("No hay sintetizador de voz disponible en el servidor.")
+                    audio_bytes = tmp_wav.read_bytes()
+                    content_type = "audio/wav"
+                finally:
+                    tmp_wav.unlink(missing_ok=True)
+
+            if len(_TTS_CACHE) >= 64:
+                _TTS_CACHE.pop(next(iter(_TTS_CACHE)))
+            _TTS_CACHE[cache_key] = (content_type, audio_bytes)
+
+            self.send_response(HTTPStatus.OK)
+            self.send_cors_headers()
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(audio_bytes)))
+            self.end_headers()
+            self.wfile.write(audio_bytes)
         except Exception as exc:
             self.send_json_response({"success": False, "error": str(exc)}, status=400)
 

@@ -48,9 +48,21 @@ class AssistantUI {
   initMobileAudioUnlock() {
     this.audioUnlocked = false;
     this.currentUtterance = null;
+    this.isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
+    this.serverHasNeuralTTS = false;
     this.ttsAudioElement = new Audio();
     this.ttsAudioElement.playsInline = true;
     this.ttsAudioElement.preload = 'auto';
+
+    // Check once if the server has neural edge-tts installed (much smoother on mobile)
+    fetch('/api/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => {
+        if (info && info.neural_tts) {
+          this.serverHasNeuralTTS = true;
+        }
+      })
+      .catch(() => {});
 
     // Preload speechSynthesis voices list (async on mobile browsers)
     if ('speechSynthesis' in window) {
@@ -184,7 +196,28 @@ class AssistantUI {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
-      // Prefer Web Audio API AudioContext if already unlocked (bypasses iOS HTMLAudio quirks)
+      // 1. Prefer hardware-accelerated HTMLAudioElement (immune to main-thread ScriptProcessor stutter on mobile)
+      if (this.ttsAudioElement) {
+        try {
+          this.ttsAudioElement.pause();
+          this.ttsAudioElement.src = url;
+          this.ttsAudioElement.volume = 1.0;
+          this.ttsAudioElement.onended = () => {
+            URL.revokeObjectURL(url);
+            done();
+          };
+          this.ttsAudioElement.onerror = () => {
+            URL.revokeObjectURL(url);
+            done();
+          };
+          await this.ttsAudioElement.play();
+          return true;
+        } catch (e) {
+          // Fall through to AudioContext if autoplay policy blocks HTMLAudioElement
+        }
+      }
+
+      // 2. Fallback to unlocked Web Audio API AudioContext
       const audioCtx = window.app?.audio?.audioCtx;
       if (audioCtx && audioCtx.state !== 'closed') {
         try {
@@ -200,22 +233,7 @@ class AssistantUI {
           return true;
         } catch (e) {}
       }
-
-      if (this.ttsAudioElement) {
-        this.ttsAudioElement.pause();
-        this.ttsAudioElement.src = url;
-        this.ttsAudioElement.volume = 1.0;
-        this.ttsAudioElement.onended = () => {
-          URL.revokeObjectURL(url);
-          done();
-        };
-        this.ttsAudioElement.onerror = () => {
-          URL.revokeObjectURL(url);
-          done();
-        };
-        await this.ttsAudioElement.play();
-        return true;
-      }
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.warn('[Bis Audio] Fallback /api/tts error:', e);
     }
@@ -238,6 +256,12 @@ class AssistantUI {
       ? language.startsWith('en')
       : /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
     const targetLang = isEnglish ? 'en-US' : 'es-MX';
+
+    // On mobile, if the server has neural edge-tts, use it directly for smooth, consistent voice quality
+    if (this.isMobileDevice && this.serverHasNeuralTTS) {
+      this.playServerTTS(text, targetLang, done);
+      return;
+    }
 
     if (!('speechSynthesis' in window)) {
       this.playServerTTS(text, targetLang, done);
@@ -276,11 +300,11 @@ class AssistantUI {
 
       let started = false;
       const fallbackTimer = setTimeout(() => {
-        if (!started) {
+        if (!started && !window.speechSynthesis.speaking) {
           try { window.speechSynthesis.cancel(); } catch (e) {}
           this.playServerTTS(text, targetLang, done);
         }
-      }, 1400);
+      }, 2400);
 
       utterance.onstart = () => {
         started = true;

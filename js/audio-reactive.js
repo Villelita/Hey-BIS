@@ -159,7 +159,11 @@ class AudioReactive {
         this.pushToRollingBuffer(input, this.audioCtx.sampleRate);
       };
       this.analyser.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.audioCtx.destination);
+      // Route ScriptProcessor through a silent GainNode so it never leaks or glitches speaker output on mobile
+      const silentGain = this.audioCtx.createGain();
+      silentGain.gain.value = 0;
+      this.scriptProcessor.connect(silentGain);
+      silentGain.connect(this.audioCtx.destination);
 
       this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
       this.isMicActive = true;
@@ -751,9 +755,13 @@ class AudioReactive {
     // 2. Generate Intelligent Local Response
     const reply = await this.generateResponse(query, language);
 
-    // 3. Switch to Speaking state and mute mic recognition until speech finishes (prevents echo loop)
+    // 3. Switch to Speaking state and mute mic recognition + mic track until speech finishes
+    //    (prevents echo loop AND releases mobile OS voice-call audio mode so TTS is crisp & smooth)
     this.isAssistantSpeaking = true;
     this.stopRecognition();
+    if (this.mediaStream) {
+      this.mediaStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+    }
     this.rollingSamples16k.fill(0);
     this.rollingFilled = 0;
 
@@ -769,23 +777,30 @@ class AudioReactive {
       this.returnToSleep();
       setTimeout(() => {
         if (this.isMicActive && !this.isAssistantSpeaking) {
+          if (this.mediaStream) {
+            this.mediaStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+          }
           this.startRecognition();
         }
       }, 950);
     };
 
     // Safety ceiling in case browser never fires onend
-    const maxSpeechMs = Math.max(4000, reply.length * 85 + 2000);
+    const maxSpeechMs = Math.max(4500, reply.length * 90 + 2500);
     const safetyTimer = setTimeout(finishSpeaking, maxSpeechMs);
 
     if (this.ui) {
       this.ui.setState('speaking');
       this.ui.setTranscript(reply, 'bis', true);
       this.ui.updateSubtext(`✨ ${this.escapeHtml(reply)}`);
-      this.ui.speakAudio(reply, language, () => {
-        clearTimeout(safetyTimer);
-        finishSpeaking();
-      });
+      // Give mobile OS ~200ms after stopping recognition to release mic audio focus cleanly
+      const startDelayMs = this.ui.isMobileDevice ? 220 : 40;
+      setTimeout(() => {
+        this.ui.speakAudio(reply, language, () => {
+          clearTimeout(safetyTimer);
+          finishSpeaking();
+        });
+      }, startDelayMs);
     } else {
       clearTimeout(safetyTimer);
       finishSpeaking();
