@@ -398,6 +398,10 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 self.send_json_response({"error": "No se pudo transcribir el audio. Revisa la instalación del reconocedor de voz."}, status=503)
             return
 
+        if path == "/api/tts":
+            self.handle_tts()
+            return
+
         if path == "/api/recordings":
             self.handle_save_recording()
             return
@@ -411,6 +415,58 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json_response({"error": f"Endpoint desconocido: {path}"}, status=404)
+
+    def handle_tts(self) -> None:
+        """Sintetiza respuesta de voz en WAV para dispositivos móviles donde Web SpeechSynthesis falla."""
+        import shutil
+        import tempfile
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 16_000:
+                raise ValueError("Texto de respuesta inválido.")
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            text = str(body.get("text", "")).strip()
+            language = str(body.get("language", "es-MX") or "es-MX")
+            if not text:
+                raise ValueError("Texto vacío.")
+
+            is_english = language.lower().startswith("en")
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+
+            try:
+                if shutil.which("say"):
+                    voice = "Samantha" if is_english else "Paulina"
+                    subprocess.run(
+                        ["say", "-v", voice, "-o", str(tmp_path), "--data-format=LEI16@22050", text],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                elif shutil.which("espeak-ng") or shutil.which("espeak"):
+                    cmd = shutil.which("espeak-ng") or shutil.which("espeak")
+                    voice = "en-us" if is_english else "es-419"
+                    subprocess.run(
+                        [cmd, "-v", voice, "-w", str(tmp_path), text],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                else:
+                    raise RuntimeError("No hay sintetizador de voz disponible en el servidor.")
+
+                wav_bytes = tmp_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_cors_headers()
+                self.send_header("Content-Type", "audio/wav")
+                self.send_header("Content-Length", str(len(wav_bytes)))
+                self.end_headers()
+                self.wfile.write(wav_bytes)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+        except Exception as exc:
+            self.send_json_response({"success": False, "error": str(exc)}, status=400)
 
     def handle_save_recording(self) -> None:
         try:

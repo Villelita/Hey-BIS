@@ -38,7 +38,58 @@ class AssistantUI {
     this.initControls();
     this.initPrompts();
     this.initManualMicBtn();
+    this.initMobileAudioUnlock();
     this.startAudioVisualizerLoop();
+  }
+
+  // ==========================================================================
+  // MOBILE AUDIO UNLOCK (iOS Safari & Android Chrome Autoplay Policy)
+  // ==========================================================================
+  initMobileAudioUnlock() {
+    this.audioUnlocked = false;
+    this.currentUtterance = null;
+    this.ttsAudioElement = new Audio();
+    this.ttsAudioElement.playsInline = true;
+    this.ttsAudioElement.preload = 'auto';
+
+    // Preload speechSynthesis voices list (async on mobile browsers)
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+
+    const unlock = () => {
+      if (this.audioUnlocked) return;
+      this.audioUnlocked = true;
+
+      // 1. Unlock HTMLAudioElement with a tiny silent WAV on the first user gesture
+      try {
+        this.ttsAudioElement.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        this.ttsAudioElement.volume = 0.01;
+        const p = this.ttsAudioElement.play();
+        if (p && p.then) {
+          p.then(() => {
+            this.ttsAudioElement.pause();
+            this.ttsAudioElement.volume = 1.0;
+          }).catch(() => {});
+        }
+      } catch (e) {}
+
+      // 2. Unlock Web SpeechSynthesis on the first user gesture
+      if ('speechSynthesis' in window) {
+        try {
+          const silentUtterance = new SpeechSynthesisUtterance(' ');
+          silentUtterance.volume = 0;
+          silentUtterance.rate = 10;
+          window.speechSynthesis.speak(silentUtterance);
+        } catch (e) {}
+      }
+    };
+
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('click', unlock, { passive: true });
   }
 
   initManualMicBtn() {
@@ -111,27 +162,115 @@ class AssistantUI {
   }
 
   // ==========================================================================
-  // SPEECH SYNTHESIS HELPER (Optional local browser audio)
+  // SPEECH SYNTHESIS HELPER (Mobile-safe Web Speech + Server /api/tts fallback)
   // ==========================================================================
-  speakAudio(text, language = null) {
-    if (!('speechSynthesis' in window)) return;
+  async playServerTTS(text, language) {
     try {
-      window.speechSynthesis.cancel();
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: language || 'es-MX' }),
+      });
+      if (!res.ok) return false;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      // Prefer Web Audio API AudioContext if already unlocked (bypasses iOS HTMLAudio quirks)
+      const audioCtx = window.app?.audio?.audioCtx;
+      if (audioCtx && audioCtx.state !== 'closed') {
+        try {
+          if (audioCtx.state === 'suspended') await audioCtx.resume();
+          const arrayBuf = await blob.arrayBuffer();
+          const decoded = await audioCtx.decodeAudioData(arrayBuf);
+          const src = audioCtx.createBufferSource();
+          src.buffer = decoded;
+          src.connect(audioCtx.destination);
+          src.start(0);
+          URL.revokeObjectURL(url);
+          return true;
+        } catch (e) {}
+      }
+
+      if (this.ttsAudioElement) {
+        this.ttsAudioElement.pause();
+        this.ttsAudioElement.src = url;
+        this.ttsAudioElement.volume = 1.0;
+        this.ttsAudioElement.onended = () => URL.revokeObjectURL(url);
+        await this.ttsAudioElement.play();
+        return true;
+      }
+    } catch (e) {
+      console.warn('[Bis Audio] Fallback /api/tts error:', e);
+    }
+    return false;
+  }
+
+  speakAudio(text, language = null) {
+    if (!text) return;
+    const isEnglish = language
+      ? language.startsWith('en')
+      : /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
+    const targetLang = isEnglish ? 'en-US' : 'es-MX';
+
+    // On mobile devices, try server WAV TTS directly through the unlocked AudioContext/Audio element
+    // if SpeechSynthesis fails to start within 500ms.
+    if (!('speechSynthesis' in window)) {
+      this.playServerTTS(text, targetLang);
+      return;
+    }
+
+    try {
+      const wasSpeaking = window.speechSynthesis.speaking || window.speechSynthesis.pending;
+      if (wasSpeaking) {
+        window.speechSynthesis.cancel();
+      }
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
-      const isEnglish = language ? language.startsWith('en') : /\b(the|is|are|temperature|diagnostic|streaming|timer|hello|time)\b/i.test(text) && !/[áéíóúñ¿¡]/i.test(text);
-      utterance.lang = isEnglish ? 'en-US' : 'es-MX';
+      utterance.lang = targetLang;
       utterance.rate = 1.03;
       utterance.pitch = 0.98;
+      utterance.volume = 1.0;
+
       const voices = window.speechSynthesis.getVoices();
       const targetPrefix = isEnglish ? 'en' : 'es';
       const preferred =
-        voices.find(v => v.lang.toLowerCase() === utterance.lang.toLowerCase()) ||
+        voices.find(v => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
         voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Paulina') || v.name.includes('Mónica') || v.name.includes('Samantha'))) ||
         voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix));
       if (preferred) utterance.voice = preferred;
-      window.speechSynthesis.speak(utterance);
+
+      // Retain reference to prevent mobile Safari garbage collection mid-speech
+      this.currentUtterance = utterance;
+
+      let started = false;
+      const fallbackTimer = setTimeout(() => {
+        if (!started) {
+          try { window.speechSynthesis.cancel(); } catch (e) {}
+          this.playServerTTS(text, targetLang);
+        }
+      }, 650);
+
+      utterance.onstart = () => {
+        started = true;
+        clearTimeout(fallbackTimer);
+      };
+      utterance.onerror = () => {
+        if (!started) {
+          started = true;
+          clearTimeout(fallbackTimer);
+          this.playServerTTS(text, targetLang);
+        }
+      };
+
+      // Small delay after cancel() avoids Chrome/Safari mobile silent-drop bug
+      setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+      }, wasSpeaking ? 60 : 0);
     } catch (e) {
-      // Ignored if user hasn't interacted or speech synth is disabled
+      this.playServerTTS(text, targetLang);
     }
   }
 
