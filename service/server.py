@@ -432,11 +432,24 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 raise ValueError("Texto vacío.")
 
             is_english = language.lower().startswith("en")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            use_edge_tts = shutil.which("edge-tts") is not None
+            suffix = ".mp3" if use_edge_tts else ".wav"
+            content_type = "audio/mpeg" if use_edge_tts else "audio/wav"
+
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp_path = Path(tmp.name)
 
             try:
-                if shutil.which("say"):
+                if use_edge_tts:
+                    voice = "en-US-JennyNeural" if is_english else "es-MX-DaliaNeural"
+                    subprocess.run(
+                        ["edge-tts", "--voice", voice, "--text", text, "--write-media", str(tmp_path)],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=8,
+                    )
+                elif shutil.which("say"):
                     voice = "Samantha" if is_english else "Paulina"
                     subprocess.run(
                         ["say", "-v", voice, "-o", str(tmp_path), "--data-format=LEI16@22050", text],
@@ -446,9 +459,9 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                     )
                 elif shutil.which("espeak-ng") or shutil.which("espeak"):
                     cmd = shutil.which("espeak-ng") or shutil.which("espeak")
-                    voice = "en-us" if is_english else "es-419"
+                    voice = "en-us+f3" if is_english else "es-419+f3"
                     subprocess.run(
-                        [cmd, "-v", voice, "-w", str(tmp_path), text],
+                        [cmd, "-v", voice, "-s", "150", "-p", "52", "-w", str(tmp_path), text],
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
@@ -456,13 +469,13 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 else:
                     raise RuntimeError("No hay sintetizador de voz disponible en el servidor.")
 
-                wav_bytes = tmp_path.read_bytes()
+                audio_bytes = tmp_path.read_bytes()
                 self.send_response(HTTPStatus.OK)
                 self.send_cors_headers()
-                self.send_header("Content-Type", "audio/wav")
-                self.send_header("Content-Length", str(len(wav_bytes)))
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(audio_bytes)))
                 self.end_headers()
-                self.wfile.write(wav_bytes)
+                self.wfile.write(audio_bytes)
             finally:
                 tmp_path.unlink(missing_ok=True)
         except Exception as exc:

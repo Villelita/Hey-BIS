@@ -639,11 +639,12 @@ class AudioReactive {
         }
       }
 
-      // Reset silence debounce timer: once user pauses for 1.3s, process query
+      // Faster debounce: answer in 350ms when speech result is final, or 700ms on interim pause
+      const isFinalResult = Boolean(finalTranscript);
       if (this.silenceTimer) clearTimeout(this.silenceTimer);
       this.silenceTimer = setTimeout(() => {
-        this.processUserCommand(this.accumulatedQuery);
-      }, 1300);
+        this.processUserCommand(this.accumulatedQuery, this.detectLanguage(this.accumulatedQuery));
+      }, isFinalResult ? 350 : 700);
     }
   }
 
@@ -677,8 +678,8 @@ class AudioReactive {
       this.accumulatedQuery = queryInSameSentence;
       if (this.silenceTimer) clearTimeout(this.silenceTimer);
       this.silenceTimer = setTimeout(() => {
-        this.processUserCommand(this.accumulatedQuery);
-      }, 1200);
+        this.processUserCommand(this.accumulatedQuery, this.detectLanguage(this.accumulatedQuery));
+      }, 450);
     } else {
       // 6-second timeout if user doesn't say anything after "Hey Bis" / "Hola Bis"
       if (this.silenceTimer) clearTimeout(this.silenceTimer);
@@ -714,29 +715,15 @@ class AudioReactive {
     this.isAwake = false;
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
 
-    // 1. Switch to Thinking state
+    // 1. Switch to Thinking state briefly so the 8-petal convergence animation plays smoothly
     if (this.ui) {
       this.ui.setState('thinking');
-      this.ui.updateSubtext('Procesando respuesta neuronal...');
+      this.ui.updateSubtext('Procesando...');
     }
 
-    try {
-      if (!language && this.rollingFilled > 0) {
-        const snapshot = new Float32Array(this.rollingSamples16k);
-        const result = await this.transcribeClip(this.encodeWAV16k(snapshot, 16000));
-        if (result.text) {
-          query = result.text;
-          this.getWakePatterns().forEach(pattern => { query = query.replace(pattern, '').trim(); });
-          language = result.language;
-        }
-      }
-    } catch (error) {
-      this.ui.setState('error');
-      this.ui.setTranscript(error.message, 'bis', false);
-      setTimeout(() => this.returnToSleep(), 3000);
-      return;
-    }
+    // Use already-transcribed query immediately (avoid re-running heavy Whisper on Raspberry Pi)
     language = language || this.detectLanguage(query);
+    await new Promise(resolve => setTimeout(resolve, 250));
     this.ui.setTranscript(query, 'user', false);
     // 2. Generate Intelligent Local Response
     const reply = await this.generateResponse(query, language);

@@ -230,15 +230,19 @@ class AssistantUI {
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = targetLang;
-      utterance.rate = 1.03;
-      utterance.pitch = 0.98;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
       const voices = window.speechSynthesis.getVoices();
       const targetPrefix = isEnglish ? 'en' : 'es';
+      const isNaturalVoice = (v) =>
+        !/espeak|compact|robot|albert|bells|boing|bubbles|cellos|jester|organ|trinoids|whisper|zarvox/i.test(v.name);
       const preferred =
-        voices.find(v => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
-        voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Paulina') || v.name.includes('Mónica') || v.name.includes('Samantha'))) ||
+        voices.find(v => v.lang.toLowerCase() === targetLang.toLowerCase() && isNaturalVoice(v) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Paulina') || v.name.includes('Dalia') || v.name.includes('Siri') || v.name.includes('Samantha'))) ||
+        voices.find(v => v.lang.toLowerCase() === targetLang.toLowerCase() && isNaturalVoice(v)) ||
+        voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix) && isNaturalVoice(v) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Paulina') || v.name.includes('Mónica') || v.name.includes('Samantha'))) ||
+        voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix) && isNaturalVoice(v)) ||
         voices.find(v => v.lang.toLowerCase().startsWith(targetPrefix));
       if (preferred) utterance.voice = preferred;
 
@@ -251,7 +255,7 @@ class AssistantUI {
           try { window.speechSynthesis.cancel(); } catch (e) {}
           this.playServerTTS(text, targetLang);
         }
-      }, 650);
+      }, 1400);
 
       utterance.onstart = () => {
         started = true;
@@ -268,7 +272,7 @@ class AssistantUI {
       // Small delay after cancel() avoids Chrome/Safari mobile silent-drop bug
       setTimeout(() => {
         window.speechSynthesis.speak(utterance);
-      }, wasSpeaking ? 60 : 0);
+      }, wasSpeaking ? 80 : 0);
     } catch (e) {
       this.playServerTTS(text, targetLang);
     }
