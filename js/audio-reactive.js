@@ -52,6 +52,7 @@ class AudioReactive {
     this.hudSubtext = document.getElementById('hud-subtext');
     this.micPromptBanner = document.getElementById('mic-prompt-banner');
 
+    this.initSpeechRecognition();
     this.initTriggers();
   }
 
@@ -164,7 +165,8 @@ class AudioReactive {
       // Start volume processing loop
       this.processAudio();
 
-      // Wake detection and commands use the same local multilingual transcriber.
+      // Use instant browser SpeechRecognition when available (zero RAM load on Raspberry Pi)
+      this.startRecognition();
 
       this.updateStatusBadge(true, '🟢 MIC ON // ATENTO A "HEY BIS"');
       if (this.micPromptBanner) {
@@ -314,24 +316,27 @@ class AudioReactive {
     try {
       const snapshot = new Float32Array(this.rollingSamples16k);
       const wavBlob = this.encodeWAV16k(snapshot, 16000);
+      // En navegadores con SpeechRecognition (Chrome/Safari móvil), solo consultamos la red neuronal ligera (/api/classify)
+      // para no saturar la RAM de la Raspberry Pi con Whisper en cada frase.
+      const useServerWhisper = !this.recognition;
       const [res, transcription] = await Promise.all([
         fetch('/api/classify', {
           method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wavBlob
         }),
-        this.transcribeClip(wavBlob)
+        useServerWhisper ? this.transcribeClip(wavBlob) : Promise.resolve({ text: '', language: 'es-MX' })
       ]);
       if (!this.isMicActive || this.isManualCapturing || !['idle', 'listening'].includes(this.ui.state)) return;
       const data = res.ok ? await res.json() : null;
       const text = transcription.text;
       const wakePatterns = this.getWakePatterns();
-      const hasWakeWord = wakePatterns.some(pattern => pattern.test(text));
+      const hasWakeWord = text && wakePatterns.some(pattern => pattern.test(text));
       if (text && (this.isAwake || hasWakeWord)) {
         let command = text;
         wakePatterns.forEach(pattern => { command = command.replace(pattern, '').trim(); });
         command = command.replace(/^[\s,.!?¿¡]+|[\s,.!?¿¡]+$/g, '');
         if (!this.isAwake) this.triggerWake(text);
         if (command) await this.processUserCommand(command, transcription.language);
-      } else if (!this.isAwake && data?.weights_loaded && (data.is_wake_word || data.label === 'wake_word')) {
+      } else if (!this.isAwake && data?.success && (data.is_wake_word || data.label === 'wake_word')) {
         const pct = (data.wake_word_probability * 100).toFixed(1);
         this.lastWakeCooldownUntil = performance.now() + 3500;
         this.triggerWake('Hey Bis', {
@@ -339,12 +344,12 @@ class AudioReactive {
           confidencePct: pct,
           latencyMs: data.inference_time_ms,
         });
-      } else if (wasAwake) {
+      } else if (wasAwake && useServerWhisper) {
         this.returnToSleep();
       }
     } catch (e) {
-      if (wasAwake) this.returnToSleep();
-      this.ui.updateSubtext(`No pude procesar el audio: ${this.escapeHtml(e.message)}`);
+      if (wasAwake && !this.recognition) this.returnToSleep();
+      console.warn('[Bis Audio] Error procesando ventana:', e);
     } finally {
       this.isClassifying = false;
     }
