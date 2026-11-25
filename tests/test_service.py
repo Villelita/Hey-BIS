@@ -13,6 +13,11 @@ from service.server import (
     generate_synthetic_wav,
     AudioNoiseClassifier,
 )
+from service.qr_generator import (
+    encode_qr_matrix,
+    generate_qr_svg,
+    build_qr_page_html,
+)
 
 
 class TestService(unittest.TestCase):
@@ -85,6 +90,28 @@ class TestService(unittest.TestCase):
         self.assertIn("label", result)
         self.assertIn("probabilities", result)
         self.assertGreater(result.get("windows_evaluated", 0), 1)
+
+    def test_qr_generator_matrix_svg_and_page(self):
+        url = "https://192.168.0.9:8443/kiosk"
+        matrix = encode_qr_matrix(url)
+        size = len(matrix)
+        # Versión 3 para ~30 bytes => 29x29 módulos
+        self.assertEqual(size, 29)
+        self.assertTrue(all(len(row) == size for row in matrix))
+        # Verificar patrón de búsqueda superior izquierdo (esquina 7x7)
+        self.assertTrue(matrix[0][0])
+        self.assertTrue(matrix[0][6])
+        self.assertTrue(matrix[6][0])
+        self.assertTrue(matrix[3][3])
+        self.assertFalse(matrix[1][1])
+
+        svg = generate_qr_svg(url)
+        self.assertIn("<svg ", svg)
+        self.assertIn("<path d=", svg)
+
+        page = build_qr_page_html(url, panel_url="https://192.168.0.9:8443/")
+        self.assertIn(url, page)
+        self.assertIn("/api/qr.svg", page)
 
 
 if __name__ == "__main__":

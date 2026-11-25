@@ -45,6 +45,7 @@ from microphone import validate_recording
 from main import FIELDS, LABELS, SPLITS, initialize
 from import_esc50 import write_csv
 from speech_transcription import transcribe_samples
+from service.qr_generator import build_qr_page_html, generate_qr_svg
 
 RECORDING_LOCK = threading.Lock()
 DATA_DIR = PROJECT_ROOT / "data"
@@ -333,6 +334,41 @@ class HeyBISHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(wav_bytes)
             except Exception as exc:
                 self.send_json_response({"error": str(exc)}, status=500)
+            return
+
+        # Página QR automática y SVG descargable con la IP actual de la red local
+        if path in ("/qr", "/qr/", "/api/qr.svg"):
+            live_ips = get_lan_ips()
+            primary_ip = live_ips[0] if live_ips else "127.0.0.1"
+            if self.https_port:
+                default_kiosk_url = f"https://{primary_ip}:{self.https_port}/kiosk"
+                panel_url = f"https://{primary_ip}:{self.https_port}/"
+            else:
+                default_kiosk_url = f"http://{primary_ip}:{self.server_port}/kiosk"
+                panel_url = f"http://{primary_ip}:{self.server_port}/"
+
+            query = parse_qs(parsed.query)
+            target_url = query.get("url", [default_kiosk_url])[0].strip() or default_kiosk_url
+
+            try:
+                if path == "/api/qr.svg":
+                    svg_bytes = generate_qr_svg(target_url).encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_cors_headers()
+                    self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+                    self.send_header("Content-Length", str(len(svg_bytes)))
+                    self.end_headers()
+                    self.wfile.write(svg_bytes)
+                else:
+                    html_bytes = build_qr_page_html(target_url, panel_url=panel_url).encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_cors_headers()
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(html_bytes)))
+                    self.end_headers()
+                    self.wfile.write(html_bytes)
+            except Exception as exc:
+                self.send_json_response({"error": f"No se pudo generar el QR: {exc}"}, status=400)
             return
 
         # Servir interfaz 3D Kiosk en /kiosk y sus recursos css/ y js/ de la raíz
@@ -753,6 +789,7 @@ def run_server(
         print(f"  * Red Local HTTP:  http://{ip}:{port}/kiosk")
         if HeyBISHandler.https_port:
             print(f"  * Kiosk HTTPS:     https://{ip}:{HeyBISHandler.https_port}/kiosk  <-- (Micrófono en vivo en celular/PC)")
+            print(f"  * Código QR:       https://{ip}:{HeyBISHandler.https_port}/qr  (o http://{ip}:{port}/qr)")
             print(f"  * Panel HTTPS:     https://{ip}:{HeyBISHandler.https_port}/")
     print("=" * 64)
     print("  Conéctate desde cualquier navegador en tu red local o móvil.")
